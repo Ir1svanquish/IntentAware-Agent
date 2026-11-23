@@ -2,7 +2,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 
 # Four-week Sprint Checklist
 
-> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. Optional LLM classification and goal clarification are wired in but off by default and still need validation against a live service. Live retrieval and research evaluation remain future work. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
+> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. Optional LLM classification and goal clarification are wired in and a first dev-set evaluation is recorded (40 samples, Macro-F1 0.896); they stay off by default and still need validation on the 60 held-out samples. Live retrieval and research evaluation remain future work. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
 
 ## Week 1 — Foundation and early study preparation
 
@@ -13,7 +13,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - [x] [A/C/F] Add stable sampling, pause/resume, application exclusions, and locally saved settings
 - [x] [C/F] Set up SQLite storage for goals, progress, detours and events
 - [x] [F] Provide replaceable classifier/delegator interfaces and offline demo implementations
-- [ ] [B] Connect a real LLM API and versioned prompts
+- [x] [B] Connect a real LLM API and versioned prompts
 - [ ] [E] Begin controlled study task/log design, recruitment and consent/ethics preparation
 
 ## Week 2 — Core MVP
@@ -50,7 +50,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - `src/intentaware/session.py`: connects the UI, NLP, persistence and background delegation.
 - `src/intentaware/activity/`: foreground observation, stable sampling, and the task monitor; `src/intentaware/nlp/local.py`: local task inference and activity classification.
 - Normal launch enables recognition; `--demo` uses simulated window observations; `--manual` starts with recognition paused.
-- Inference uses application names, titles, and local rules. Delegation returns offline examples; LLMs and live retrieval are not connected.
+- Default inference uses application names, titles, and local rules; `--classifier llm` optionally uses an OpenAI-compatible model. Delegation still returns offline examples and live retrieval is not connected.
 - Preserve G/P/I/D. Window observations do not confirm progress or meaningful edits, and raw ongoing window titles are excluded from event exports.
 
 ## Definition of done

@@ -68,7 +68,40 @@ LLM 模式只发送 Prompt 中的五个字段（主任务、下一步、已确�
 2. **信息不足**：`打开了一个窗口`、`未命名-1`、`新标签页` 必须判“不确定”。
 3. **边界诱惑**：`刷短视频找撰写论文的灵感` 含主题词，但仍是可选探索。
 
-这 40 条只用于回归与错误分析；E 模块另有 60 条保留评估样本，**不得**用于调 Prompt。开发中出现错误时按以下类型归类，并在 PR 中附上对应样本编号：
+这 40 条只用于回归与错误分析；E 模块另有 60 条保留评估样本，**不得**用于调 Prompt。
+
+### 真实模型基线（2026-11-24）
+
+配置：`deepseek-chat`、`temperature=0`、Prompt `classify_v1@0d676046`、开发集 40 条，单次运行：
+
+```bash
+INTENTAWARE_LLM_API_KEY=... python -m intentaware.nlp.evaluate tests/fixtures/nlp_samples.jsonl
+```
+
+| 指标 | 值 |
+| --- | --- |
+| 准确率 | 0.900（36/40） |
+| Macro-F1 | 0.896 |
+| 平均延迟 | 1098 ms |
+| Token | 16880（prompt 14743 / completion 2137；prompt 中缓存命中 5120） |
+
+| 类别 | support | precision | recall | F1 |
+| --- | --- | --- | --- | --- |
+| direct_progress | 10 | 0.900 | 0.900 | 0.900 |
+| necessary_preparation | 10 | 0.909 | 1.000 | 0.952 |
+| optional_exploration | 10 | 0.833 | 1.000 | 0.909 |
+| unclear | 10 | 1.000 | 0.700 | 0.824 |
+
+| 错误样本 | 期望 | 实际 | 分析 |
+| --- | --- | --- | --- |
+| `dev-005` | direct_progress | necessary_preparation | 目标“写读书报告”、下一步就是“阅读第三章”，模型仍按“读=准备”处理；它更依赖活动类型，没有利用 next_step 一致这一信号 |
+| `dev-037` | unclear | optional_exploration | “打开了设置页面”被判成有用支线；`unclear` 门槛偏低 |
+| `dev-038` | unclear | optional_exploration | “浏览网页”同类问题 |
+| `dev-039` | unclear | direct_progress | “在文档里写了一些内容”被判为产出，但没有核对与目标的关系 |
+
+主要短板是 `unclear` 召回 0.700，其余三类 F1 ≥ 0.90；误判集中在模型倾向给“有用的支线”标签而不愿承认信息不足。调整方向：把 `unclear` 的判定顺序提前，并增加“活动没有具体对象或产出时不得给出类别”的约束；调完必须在 E 的 60 条保留样本上复核，不能只优化这 40 条。
+
+出现错误时按以下类型归类，并在 PR 中附上对应样本编号：
 
 | 错误类型 | 表现 | 处理方向 |
 | --- | --- | --- |

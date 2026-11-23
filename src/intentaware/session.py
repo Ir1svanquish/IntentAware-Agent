@@ -55,7 +55,15 @@ class DesktopSession:
         self._event("session_started", details=self._provider_details())
 
     def _provider_details(self) -> dict:
-        return {"classifier": type(self.classifier).__name__, "delegator": type(self.delegator).__name__}
+        details = {"delegator": type(self.delegator).__name__}
+        details.update(self._classifier_details())
+        return details
+
+    def _classifier_details(self) -> dict:
+        """分类器可暴露 metadata（模型、Prompt 版本），写进事件供实验复现。"""
+        details = {"classifier": type(self.classifier).__name__}
+        details.update(getattr(self.classifier, "metadata", None) or {})
+        return details
 
     @property
     def memory_enabled(self) -> bool:
@@ -182,7 +190,9 @@ class DesktopSession:
 
     def _record_classification(self, result: Classification, activity: str) -> Classification:
         self._validate_classification(result)
-        self._event("activity_classified", details={"label": result.label.value, "classifier": type(self.classifier).__name__})
+        details = {"label": result.label.value}
+        details.update(self._classifier_details())
+        self._event("activity_classified", details=details)
         self.classification = result
         self.classification_activity = activity
         return result

@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
         self._load_goal()
         self._refresh()
         self._show_page(WORKBENCH)
-        self._status("自动识别只使用本机的应用名称与窗口标题。" if monitor else "手动模式 · 可修正主任务，或展开手动补充活动。")
+        self._status(self._startup_status())
         self._timer = QTimer(self, interval=100)
         self._timer.timeout.connect(self._poll)
         self._timer.start()
@@ -573,7 +573,11 @@ class MainWindow(QMainWindow):
     def _build_settings(self) -> QWidget:
         page, layout = self._page()
         panel, monitor = _card("自动任务识别")
-        monitor.addWidget(_label("根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。", "body", wrap=True))
+        if getattr(self.session.classifier, "metadata", None):
+            hint = "根据前台应用名、窗口标题与主任务，调用已配置的模型判断活动。主任务可随时修正。"
+        else:
+            hint = "根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。"
+        monitor.addWidget(_label(hint, "body", wrap=True))
         self.settings_monitor_status = _label(role="muted", wrap=True)
         monitor.addWidget(self.settings_monitor_status)
         line = QFrame()
@@ -616,6 +620,13 @@ class MainWindow(QMainWindow):
         self.goal_input.setText(goal.title if goal else "")
         self.next_step_input.setText(goal.next_step if goal else "")
         self.progress_input.setText(self.session.progress.note if self.session.progress else "")
+
+    def _startup_status(self) -> str:
+        if getattr(self.session.classifier, "metadata", None):
+            return "自动识别调用已配置的模型判断活动；窗口标题只作为线索，可随时修正。"
+        if self.monitor:
+            return "自动识别只使用本机的应用名称与窗口标题。"
+        return "手动模式 · 可修正主任务，或展开手动补充活动。"
 
     def _status(self, text: str = "", *, error: bool = False) -> None:
         self.status_label.setText(text)

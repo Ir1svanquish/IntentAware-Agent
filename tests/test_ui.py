@@ -131,6 +131,15 @@ def test_deferred_job_keeps_window_responsive_and_hides_answer(open_window):
         release.set()
 
 
+def test_llm_mode_is_reflected_in_status_and_settings_hint(open_window):
+    from intentaware.nlp.classifier import LlmActivityClassifier
+    from intentaware.nlp.llm import FakeLLMClient
+
+    window, _ = open_window(classifier=LlmActivityClassifier(FakeLLMClient([])))
+
+    assert "模型" in window.status_label.text()
+
+
 def wait_until(predicate):
     deadline = time.monotonic() + 3
     while not predicate() and time.monotonic() < deadline:

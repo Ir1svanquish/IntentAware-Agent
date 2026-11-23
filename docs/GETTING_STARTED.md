@@ -86,7 +86,27 @@ session = DesktopSession(
 
 自动观察由 `TaskMonitor` 调用观察器的 `capture() -> CaptureResult`，稳定后使用 `LocalTaskRecognizer.infer(snapshot)` 生成候选任务，再协调后台活动分类。替换观察器时保留空闲、排除与不可用状态，给外部命令设置超时；暂停、排除或关闭后不得应用之前发出的延迟结果。
 
-当前推断是本地规则，委托是离线示例。接入真实模型或检索前，同步更新界面模式提示与事件模式标记，并为评估记录模型、提示词和观察模式。不要把标题分类结果写成用户已完成的进度。
+当前委托执行器是离线示例；活动分类默认使用本地规则，也可以显式切换到 LLM。接入真实检索前，同步更新界面模式提示与事件模式标记，并为评估记录模型、Prompt 版本和观察模式。不要把标题分类结果写成用户已完成的进度。
+
+### LLM 分类（可选）
+
+`--classifier llm` 使用 [`nlp/llm.py`](../src/intentaware/nlp/llm.py) 的 OpenAI 兼容客户端；不传该参数时仍是本地规则，行为与之前一致。启动时会弹窗说明将要发送的字段与端点。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `INTENTAWARE_LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI 兼容端点 |
+| `INTENTAWARE_LLM_API_KEY` | 空 | 默认服务商必填；本地端点可省略 |
+| `INTENTAWARE_LLM_MODEL` | `deepseek-chat` | 实验时固定并记录 |
+| `INTENTAWARE_LLM_TIMEOUT` | `20` | 单次请求秒数 |
+| `INTENTAWARE_LLM_RETRIES` | `1` | 仅对 429、5xx 与超时重试 |
+
+```bash
+INTENTAWARE_LLM_API_KEY=... python -m intentaware --classifier llm
+python -m intentaware.nlp.clarify "下周三前交论文初稿"
+python -m intentaware.nlp.evaluate tests/fixtures/nlp_samples.jsonl
+```
+
+只发送主任务、下一步、已确认进度、活动来源与当前活动五个字段；不发送本地路径、事件历史或数据库内容。模型与 Prompt 版本记录在 `session_started` 与 `activity_classified` 事件中，便于复现。细节与错误分析见 [`nlp/README.md`](../src/intentaware/nlp/README.md)。
 
 扩展存储时，用 `with store.transaction():` 将一次操作的数据修改与事件记录共同提交。保存失败应整体回滚，界面状态只在提交成功后更新。
 

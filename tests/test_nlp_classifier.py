@@ -101,3 +101,24 @@ def test_metadata_records_prompt_version_and_model():
     classifier = classifier_returning()
     assert classifier.metadata["prompt"].startswith("classify_v1@")
     assert classifier.metadata["model"] == "fake-model"
+
+
+def test_metadata_exposes_usage_and_latency_after_a_call():
+    class UsageClient(FakeLLMClient):
+        def complete_json(self, **kwargs):
+            result = super().complete_json(**kwargs)
+            self.last_usage = {"prompt_tokens": 120, "completion_tokens": 30}
+            self.last_latency_ms = 321.44
+            return result
+
+    classifier = LlmActivityClassifier(
+        UsageClient(
+            [{"label": "unclear", "reason": "信息不足", "suggested_next_step": "补充活动"}]
+        )
+    )
+    assert "usage" not in classifier.metadata
+
+    classifier.classify(context())
+
+    assert classifier.metadata["usage"] == {"prompt_tokens": 120, "completion_tokens": 30}
+    assert classifier.metadata["latency_ms"] == 321.4

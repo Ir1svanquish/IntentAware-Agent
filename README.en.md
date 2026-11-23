@@ -63,7 +63,7 @@ Use the virtual-environment Python path shown above, or activate the environment
 
 ## Overview
 
-**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. The current version uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. Planned LLM and public-source retrieval integrations will improve goal understanding, resumption, and delegation of non-urgent questions. The current delegator supports offline checks of background execution and delivery.
+**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. By default it uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. `--classifier llm` optionally connects an OpenAI-compatible model for goal clarification and four-way classification (API key required, off by default; tests and the default flow stay offline). Public-source retrieval and asynchronous delegation of non-urgent questions remain in development; the current delegator supports offline checks of background execution and delivery.
 
 ### Project proposal
 

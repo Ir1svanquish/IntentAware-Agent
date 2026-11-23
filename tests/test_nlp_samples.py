@@ -122,6 +122,39 @@ def test_evaluate_computes_accuracy_errors_and_per_label_scores():
     assert report["labels"]["direct_progress"]["f1"] == 1.0
     assert report["labels"]["unclear"]["support"] == 1
     assert report["labels"]["unclear"]["f1"] == 0.0
+    assert report["usage_totals"] == {}
+    assert report["latency_mean_ms"] is None
+
+
+def test_evaluate_aggregates_token_usage_and_latency():
+    class UsageClient(FakeLLMClient):
+        def complete_json(self, **kwargs):
+            result = super().complete_json(**kwargs)
+            self.last_usage = {"prompt_tokens": 10, "completion_tokens": 2}
+            self.last_latency_ms = 200.0
+            return result
+
+    rows = [
+        {
+            "id": "u-1",
+            "goal_title": "完成论文",
+            "goal_next_step": "写正文",
+            "progress": "",
+            "activity": "写正文",
+            "expected_label": "direct_progress",
+        }
+    ]
+    classifier = LlmActivityClassifier(
+        UsageClient(
+            [{"label": "direct_progress", "reason": "在写", "suggested_next_step": "继续"}]
+        )
+    )
+
+    report = evaluate(classifier, rows)
+
+    assert report["usage_totals"] == {"prompt_tokens": 10, "completion_tokens": 2}
+    assert report["latency_mean_ms"] == 200.0
+    assert report["rows"][0]["usage"]["prompt_tokens"] == 10
 
 
 def test_evaluate_cli_runs_offline_and_prints_report(tmp_path, capsys):

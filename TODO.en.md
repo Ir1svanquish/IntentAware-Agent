@@ -2,7 +2,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 
 # Four-week Sprint Checklist
 
-> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. LLM integration, live retrieval, and research evaluation remain future work. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
+> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. Optional LLM classification and goal clarification are wired in but off by default and still need validation against a live service. Live retrieval and research evaluation remain future work. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
 
 ## Week 1 — Foundation and early study preparation
 

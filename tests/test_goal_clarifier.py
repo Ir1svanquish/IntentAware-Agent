@@ -115,28 +115,45 @@ def test_cli_reports_missing_configuration(monkeypatch, capsys):
     assert "配置错误" in capsys.readouterr().err
 
 
+def test_clarifier_metadata_exposes_usage_and_latency_after_a_call():
+    client = FakeLLMClient([dict(PAYLOAD)])
+    clarifier = LlmGoalClarifier(client)
+    assert "usage" not in clarifier.metadata
+
+    clarifier.clarify("写论文")
+    client.last_usage = {"prompt_tokens": 50, "completion_tokens": 20}
+    client.last_latency_ms = 100.0
+
+    assert clarifier.metadata["usage"] == {"prompt_tokens": 50, "completion_tokens": 20}
+    assert clarifier.metadata["latency_ms"] == 100.0
+
+
 def test_session_events_record_model_and_prompt_version(tmp_path):
-    classifier = LlmActivityClassifier(
-        FakeLLMClient(
-            [
-                {
-                    "label": "direct_progress",
-                    "reason": "正在撰写正文。",
-                    "suggested_next_step": "继续写提纲。",
-                }
-            ]
-        )
+    client = FakeLLMClient(
+        [
+            {
+                "label": "direct_progress",
+                "reason": "正在撰写正文。",
+                "suggested_next_step": "继续写提纲。",
+            }
+        ]
     )
+    classifier = LlmActivityClassifier(client)
     session = DesktopSession(SQLiteStore(tmp_path / "nlp.sqlite3"), classifier=classifier)
     try:
         session.set_goal("完成论文", "整理文献")
+        client.last_usage = {"prompt_tokens": 88, "completion_tokens": 12}
+        client.last_latency_ms = 250.0
         session.analyze("正在撰写论文正文")
         events = {event.name: event for event in session.events}
 
         assert events["session_started"].details["model"] == "fake-model"
+        assert "usage" not in events["session_started"].details
         classified = events["activity_classified"]
         assert classified.details["prompt"].startswith("classify_v1@")
         assert classified.details["model"] == "fake-model"
         assert classified.details["classifier"] == "LlmActivityClassifier"
+        assert classified.details["usage"]["prompt_tokens"] == 88
+        assert classified.details["latency_ms"] == 250.0
     finally:
         session.close()

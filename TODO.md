@@ -2,7 +2,7 @@
 
 # 四周冲刺任务清单
 
-> 当前已有自动观察前台窗口、本地规则推断任务和人工修正的桌面工作台。LLM、真实检索和研究评估仍需继续开发。具体模块可在 [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues) 认领。
+> 当前已有自动观察前台窗口、本地规则推断任务和人工修正的桌面工作台；可选 LLM 分类与目标澄清已接入但默认关闭，尚待真实服务验证。真实检索和研究评估仍需继续开发。具体模块可在 [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues) 认领。
 
 ## 第 1 周 — 核心基础与提前准备实验
 

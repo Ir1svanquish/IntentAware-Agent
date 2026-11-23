@@ -47,6 +47,9 @@ class OpenAICompatibleClient:
         self.model = config.model
         self._transport = transport or _post_json
         self._sleep = sleep
+        # 最近一次成功请求的用量与耗时；实验报告需要 latency 与 token usage。
+        self.last_usage: dict[str, int] = {}
+        self.last_latency_ms: float | None = None
 
     def complete_json(
         self, *, system: str, user: str, schema: Mapping[str, object]
@@ -71,10 +74,15 @@ class OpenAICompatibleClient:
 
         for attempt in range(1, attempts + 1):
             try:
+                started = time.perf_counter()
                 raw = self._transport(
                     self.config.endpoint, payload, headers, self.config.timeout
                 )
-                return _message_content(raw)
+                latency_ms = (time.perf_counter() - started) * 1000
+                content, usage = _message_content(raw)
+                self.last_usage = usage
+                self.last_latency_ms = latency_ms
+                return content
             except urlerror.HTTPError as exc:
                 retryable = exc.code == 429 or 500 <= exc.code < 600
                 if retryable and attempt < attempts:
@@ -135,7 +143,7 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> bytes:
         return response.read()
 
 
-def _message_content(raw: bytes) -> str:
+def _message_content(raw: bytes) -> tuple[str, dict[str, int]]:
     try:
         body = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -149,11 +157,23 @@ def _message_content(raw: bytes) -> str:
     first = choices[0]
     message = first.get("message") if isinstance(first, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
+    usage = _usage(body.get("usage"))
     if isinstance(content, dict):
-        return json.dumps(content, ensure_ascii=False)
+        return json.dumps(content, ensure_ascii=False), usage
     if not isinstance(content, str) or not content.strip():
         raise NlpResponseError("模型返回内容为空。")
-    return content
+    return content, usage
+
+
+def _usage(raw: object) -> dict[str, int]:
+    """只保留整数计数字段；不同服务商的 usage 结构可能多出嵌套对象。"""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in raw.items()
+        if isinstance(value, int) and not isinstance(value, bool)
+    }
 
 
 def _decode_content(content: str) -> dict:

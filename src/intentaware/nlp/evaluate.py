@@ -59,6 +59,7 @@ def evaluate(classifier, samples: Sequence[Mapping[str, object]]) -> dict:
         except NlpError as exc:
             predicted = "error"
             reason = str(exc)
+        metadata = getattr(classifier, "metadata", None) or {}
         rows.append(
             {
                 "id": sample.get("id", ""),
@@ -66,6 +67,8 @@ def evaluate(classifier, samples: Sequence[Mapping[str, object]]) -> dict:
                 "predicted": predicted,
                 "reason": reason,
                 "activity": str(sample["activity"]),
+                "usage": metadata.get("usage"),
+                "latency_ms": metadata.get("latency_ms"),
             }
         )
 
@@ -76,12 +79,21 @@ def evaluate(classifier, samples: Sequence[Mapping[str, object]]) -> dict:
     macro_f1 = (
         sum(value["f1"] for value in supported) / len(supported) if supported else 0.0
     )
+    latencies = [row["latency_ms"] for row in rows if isinstance(row["latency_ms"], (int, float))]
+    usage_totals: dict[str, int] = {}
+    for row in rows:
+        if isinstance(row["usage"], dict):
+            for key, value in row["usage"].items():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    usage_totals[key] = usage_totals.get(key, 0) + value
     return {
         "total": total,
         "correct": correct,
         "accuracy": correct / total if total else 0.0,
         "macro_f1": macro_f1,
         "labels": labels,
+        "usage_totals": usage_totals,
+        "latency_mean_ms": sum(latencies) / len(latencies) if latencies else None,
         "errors": [row for row in rows if row["expected"] != row["predicted"]],
         "rows": rows,
     }
@@ -123,6 +135,11 @@ def _print_report(report: dict) -> None:
         recall = "—" if value["recall"] is None else f"{value['recall']:.3f}"
         f1 = "—" if value["f1"] is None else f"{value['f1']:.3f}"
         print(f"{label:<24}{value['support']:>8}{precision:>11}{recall:>8}{f1:>7}")
+    if report["usage_totals"]:
+        tokens = "  ".join(f"{key}={value}" for key, value in report["usage_totals"].items())
+        print(f"\nToken 用量：{tokens}")
+    if report["latency_mean_ms"] is not None:
+        print(f"平均延迟：{report['latency_mean_ms']:.0f} ms")
     if report["errors"]:
         print("\n错误样本：")
         for row in report["errors"]:

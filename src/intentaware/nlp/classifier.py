@@ -41,10 +41,22 @@ class LlmActivityClassifier:
         self.client = client
         self.prompt = prompt or load_prompt("classify_v1")
         self.fallback = fallback
-        self.metadata = {
+        self._metadata = {
             "prompt": self.prompt.version,
             "model": getattr(client, "model", "unknown"),
         }
+
+    @property
+    def metadata(self) -> dict:
+        """基础配置 + 最近一次调用的用量与耗时，由会话写入事件。"""
+        details = dict(self._metadata)
+        usage = getattr(self.client, "last_usage", None)
+        if isinstance(usage, dict) and usage:
+            details["usage"] = dict(usage)
+        latency = getattr(self.client, "last_latency_ms", None)
+        if isinstance(latency, (int, float)):
+            details["latency_ms"] = round(float(latency), 1)
+        return details
 
     def classify(self, context: ActivityContext) -> Classification:
         if not context.activity.strip():

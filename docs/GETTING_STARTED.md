@@ -106,7 +106,7 @@ python -m intentaware.nlp.clarify "下周三前交论文初稿"
 python -m intentaware.nlp.evaluate tests/fixtures/nlp_samples.jsonl
 ```
 
-只发送主任务、下一步、已确认进度、活动来源与当前活动五个字段；不发送本地路径、事件历史或数据库内容。模型与 Prompt 版本记录在 `session_started` 与 `activity_classified` 事件中，便于复现。细节与错误分析见 [`nlp/README.md`](../src/intentaware/nlp/README.md)。
+只发送主任务、下一步、已确认进度、活动来源与当前活动五个字段；不发送本地路径、事件历史或数据库内容。模型、Prompt 版本、单次 token 用量与耗时记录在 `session_started` 与 `activity_classified` 事件中，便于复现与报告。细节与错误分析见 [`nlp/README.md`](../src/intentaware/nlp/README.md)。
 
 扩展存储时，用 `with store.transaction():` 将一次操作的数据修改与事件记录共同提交。保存失败应整体回滚，界面状态只在提交成功后更新。
 

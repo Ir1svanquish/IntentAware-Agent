@@ -215,3 +215,39 @@ def test_fake_client_pops_queued_responses_and_records_prompts():
 
     with pytest.raises(AssertionError):
         client.complete_json(system="s", user="u", schema=SCHEMA)
+
+
+def test_usage_and_latency_are_exposed_for_reporting():
+    body = json.dumps(
+        {
+            "choices": [{"message": {"content": json.dumps({"label": "a"})}}],
+            "usage": {
+                "prompt_tokens": 123,
+                "completion_tokens": 7,
+                "total_tokens": 130,
+                "details": {"cached_tokens": 5},
+            },
+        }
+    ).encode("utf-8")
+    client, _ = make_client(Recorder(body))
+
+    assert client.last_usage == {}
+    assert client.last_latency_ms is None
+
+    client.complete_json(system="s", user="u", schema=SCHEMA)
+
+    assert client.last_usage == {
+        "prompt_tokens": 123,
+        "completion_tokens": 7,
+        "total_tokens": 130,
+    }
+    assert client.last_latency_ms is not None
+    assert client.last_latency_ms >= 0
+
+
+def test_missing_usage_is_reported_as_empty_not_an_error():
+    client, _ = make_client(Recorder(response_body({"label": "b"})))
+
+    assert client.complete_json(system="s", user="u", schema=SCHEMA) == {"label": "b"}
+    assert client.last_usage == {}
+    assert client.last_latency_ms is not None

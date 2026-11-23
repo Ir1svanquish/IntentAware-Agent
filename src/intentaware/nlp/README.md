@@ -20,6 +20,7 @@
 - `LlmActivityClassifier`：把主任务、下一步、已确认进度、活动来源与当前活动填入 [`prompts/classify_v1.md`](prompts/classify_v1.md)，要求模型只输出 JSON，再映射为 `Classification`。
 - `LlmGoalClarifier.clarify(text) -> GoalClarification`：把一句话目标提炼为 `title` / `next_step` / `confidence` / `rationale`；置信度为 `low` 时 `needs_confirmation` 为真，界面应要求补充信息而不是直接采用。
 - Prompt 版本是文件内容的短哈希，例如 `classify_v1@ab12cd34`；模型名与 Prompt 版本会写进 `session_started` 与 `activity_classified` 事件，供实验复现。
+- 每次成功调用还会记录 `usage`（prompt/completion/total tokens）与 `latency_ms`；`evaluate` 会汇总这两项，便于报告延迟与 token 成本。
 
 两者都实现 [`Classifier`](../contracts/interfaces.py)，通过 `DesktopSession(classifier=...)` 注入；命令行用 `--classifier local|llm` 选择，默认 `local`。
 

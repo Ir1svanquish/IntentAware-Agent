@@ -49,10 +49,21 @@ class LlmGoalClarifier:
     def __init__(self, client, *, prompt: Prompt | None = None):
         self.client = client
         self.prompt = prompt or load_prompt("clarify_v1")
-        self.metadata = {
+        self._metadata = {
             "prompt": self.prompt.version,
             "model": getattr(client, "model", "unknown"),
         }
+
+    @property
+    def metadata(self) -> dict:
+        details = dict(self._metadata)
+        usage = getattr(self.client, "last_usage", None)
+        if isinstance(usage, dict) and usage:
+            details["usage"] = dict(usage)
+        latency = getattr(self.client, "last_latency_ms", None)
+        if isinstance(latency, (int, float)):
+            details["latency_ms"] = round(float(latency), 1)
+        return details
 
     def clarify(self, text: str) -> GoalClarification:
         text = text.strip()

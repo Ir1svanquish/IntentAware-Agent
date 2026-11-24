@@ -1,0 +1,40 @@
+{"id": "d-01", "question": "Macro-F1 和 micro-F1 在多分类里有什么区别？", "topic": "分类评估"}
+{"id": "d-02", "question": "Python 的 argparse 怎么设置必填参数？", "topic": "编程"}
+{"id": "d-03", "question": "什么是组内实验设计的 carryover effect？", "topic": "实验设计"}
+{"id": "d-04", "question": "SQLite 的 WAL 模式适合什么场景？", "topic": "数据库"}
+{"id": "d-05", "question": "pandas 里 groupby 和 agg 的区别是什么？", "topic": "数据分析"}
+{"id": "d-06", "question": "论文里 'we propose' 和 'we present' 语气有区别吗？", "topic": "学术写作"}
+{"id": "d-07", "question": "PySide6 的信号槽在主线程和子线程有什么区别？", "topic": "GUI 编程"}
+{"id": "d-08", "question": "如何计算 95% 置信区间？", "topic": "统计"}
+{"id": "d-09", "question": "什么是 p 值的常见误用？", "topic": "统计"}
+{"id": "d-10", "question": "LLM 的 temperature 参数怎么影响输出？", "topic": "模型"}
+{"id": "d-11", "question": "为什么需要 train/dev/test 三层划分？", "topic": "机器学习"}
+{"id": "d-12", "question": "Markdown 表格怎么对齐？", "topic": "写作工具"}
+{"id": "d-13", "question": "git rebase 和 merge 该怎么选？", "topic": "工具"}
+{"id": "d-14", "question": "什么是数据泄露（data leakage）？", "topic": "机器学习"}
+{"id": "d-15", "question": "如何给实验报告写 limitation 部分？", "topic": "学术写作"}
+{"id": "d-16", "question": "Python 的虚拟环境 venv 和 conda 有何不同？", "topic": "编程"}
+{"id": "d-17", "question": "什么是 blinding（盲法）在用户研究中的作用？", "topic": "实验设计"}
+{"id": "d-18", "question": "GPT 类的 token 计费是怎么算的？", "topic": "模型"}
+{"id": "d-19", "question": "如何检测时间序列中的异常值？", "topic": "数据分析"}
+{"id": "d-20", "question": "Likert 量表的数据该用哪种统计检验？", "topic": "统计"}
+{"id": "d-21", "question": "什么叫过拟合，怎么判断？", "topic": "机器学习"}
+{"id": "d-22", "question": "表单的 CSRF 防护原理是什么？", "topic": "安全"}
+{"id": "d-23", "question": "什么是 prompt injection？", "topic": "安全"}
+{"id": "d-24", "question": "如何写可复现的实验记录？", "topic": "研究方法"}
+{"id": "d-25", "question": "PDF 里的引用怎么导出成 BibTeX？", "topic": "工具"}
+{"id": "d-26", "question": "交叉验证的 k 值怎么选？", "topic": "机器学习"}
+{"id": "d-27", "question": "为什么随机种子要固定？", "topic": "机器学习"}
+{"id": "d-28", "question": "什么是效应量（effect size）？", "topic": "统计"}
+{"id": "d-29", "question": "如何设计一个好的用户调研问题？", "topic": "实验设计"}
+{"id": "d-30", "question": "Windows 上怎么查看前台窗口标题？", "topic": "技术"}
+{"id": "d-31", "question": "JSONL 和 JSON 有什么区别？", "topic": "数据格式"}
+{"id": "d-32", "question": "什么是注意力机制的核心思想？", "topic": "模型"}
+{"id": "d-33", "question": "如何避免实验中的要求特征（demand characteristics）？", "topic": "实验设计"}
+{"id": "d-34", "question": "正则表达式里 ?: 是什么意思？", "topic": "编程"}
+{"id": "d-35", "question": "如何评估答案是否有引用支持？", "topic": "评估"}
+{"id": "d-36", "question": "用户研究中的知情同意应包含哪些内容？", "topic": "伦理"}
+{"id": "d-37", "question": "如何做远程用户测试的招募？", "topic": "实验设计"}
+{"id": "d-38", "question": "F1 的宏平均和加权平均有什么区别？", "topic": "评估"}
+{"id": "d-39", "question": "Python 里 dataclass 和 namedtuple 怎么选？", "topic": "编程"}
+{"id": "d-40", "question": "如何给代码写清晰的 docstring？", "topic": "编程"}

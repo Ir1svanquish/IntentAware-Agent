@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobStatus
+from intentaware.memory.resume import recovery_key, recovery_text
 
 from .icons import icon
 from .theme import apply_theme
@@ -61,6 +62,8 @@ EVENT_NAMES = {
     "observation_paused": "暂停自动识别", "observation_resumed": "恢复自动识别",
     "app_excluded": "排除应用", "exclusions_updated": "更新排除列表",
     "activity_observed": "更新窗口线索",
+    "detour_updated": "编辑支线", "recovery_ignored": "忽略恢复提示",
+    "recovery_paused": "暂停恢复提示", "recovery_resumed": "开启恢复提示",
 }
 UI_ERRORS = (ValueError, RuntimeError, SQLiteError, OSError)
 ROW_ID = Qt.ItemDataRole.UserRole
@@ -170,6 +173,9 @@ class MainWindow(QMainWindow):
         self._manual_observation_key: tuple[str, str] | None = None
         self._editing_goal = False
         self._exclusions_dirty = False
+        self._editing_detour_id: str | None = None
+        self._detour_editor_goal_id: str | None = None
+        self._resume_requested_key: str | None = None
         self._closed = False
         self.setWindowTitle("IntentAware · 任务工作台")
         self.resize(1160, 800)
@@ -474,11 +480,39 @@ class MainWindow(QMainWindow):
         self.detour_list = QListWidget(wordWrap=True)
         self.detour_list.setAccessibleName("已暂存支线")
         self.detour_list.setMinimumHeight(180)
+        self.detour_list.currentRowChanged.connect(self._refresh_detour_actions)
         items.addWidget(self.detour_list)
         self.detour_empty = _label("目前没有支线\n\n在工作台点击“暂存此活动”，把临时想法留到稍后。", "muted", wrap=True)
         self.detour_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detour_empty.setMinimumHeight(150)
         items.addWidget(self.detour_empty)
+        actions = QHBoxLayout()
+        self.new_detour_button = _button("新增支线", lambda: self._edit_detour(new=True))
+        self.edit_detour_button = _button("编辑选中支线", self._edit_detour)
+        self.remove_detour_button = _button("删除选中支线", self._remove_detour)
+        for button in (self.new_detour_button, self.edit_detour_button, self.remove_detour_button):
+            actions.addWidget(button)
+        actions.addStretch()
+        items.addLayout(actions)
+        self.detour_editor, editor = _card("支线内容")
+        self.detour_text_input = QPlainTextEdit()
+        self.detour_text_input.setMaximumHeight(100)
+        self.detour_url_input = QLineEdit(placeholderText="https://…（可留空）")
+        self.detour_purpose_input = QLineEdit(placeholderText="为什么保存它，准备什么时候再看？（可留空）")
+        _field(editor, "笔记", self.detour_text_input)
+        _field(editor, "链接", self.detour_url_input)
+        _field(editor, "用途", self.detour_purpose_input)
+        self.detour_error = _label(role="error", wrap=True)
+        editor.addWidget(self.detour_error)
+        buttons = QHBoxLayout()
+        self.save_detour_button = _button("保存支线", self._save_detour, primary=True)
+        self.cancel_detour_button = _button("取消编辑", self._cancel_detour_edit)
+        buttons.addWidget(self.save_detour_button)
+        buttons.addWidget(self.cancel_detour_button)
+        buttons.addStretch()
+        editor.addLayout(buttons)
+        self.detour_editor.hide()
+        items.addWidget(self.detour_editor)
         layout.addWidget(panel)
         panel, resume = _card("接回主任务")
         self.resume_label = _label(RESUME_HINT, "body", wrap=True)
@@ -486,7 +520,13 @@ class MainWindow(QMainWindow):
         self.resume_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         resume.addWidget(self.resume_label)
         self.resume_button = _button("恢复主任务", self._resume, primary=True, glyph="arrow")
-        resume.addWidget(self.resume_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        actions = QHBoxLayout()
+        self.ignore_recovery_button = _button("忽略本条提示", self._ignore_recovery)
+        self.pause_recovery_button = _button("暂停恢复提示", self._toggle_recovery)
+        for button in (self.resume_button, self.ignore_recovery_button, self.pause_recovery_button):
+            actions.addWidget(button)
+        actions.addStretch()
+        resume.addLayout(actions)
         layout.addWidget(panel)
         layout.addStretch()
         return page
@@ -790,8 +830,85 @@ class MainWindow(QMainWindow):
             return "已暂存这条活动，可以继续主任务。"
         self._perform(add)
 
+    def _refresh_detour_actions(self) -> None:
+        enabled = self.session.memory_enabled and self.session.goal is not None
+        selected = enabled and _selected_id(self.detour_list) is not None
+        self.new_detour_button.setEnabled(enabled)
+        self.edit_detour_button.setEnabled(selected)
+        self.remove_detour_button.setEnabled(selected)
+
+    def _edit_detour(self, new: bool = False) -> None:
+        if not self.session.memory_enabled or self.session.goal is None:
+            return
+        item = None if new else next(
+            (item for item in self.session.detours if item.id == _selected_id(self.detour_list)), None,
+        )
+        if not new and item is None:
+            return
+        self._editing_detour_id = item.id if item else None
+        self._detour_editor_goal_id = self.session.goal.id
+        self.detour_text_input.setPlainText(item.text if item else "")
+        self.detour_url_input.setText(item.url if item else "")
+        self.detour_purpose_input.setText(item.purpose if item else "")
+        self.detour_error.clear()
+        self.detour_editor.show()
+        self.detour_text_input.setFocus()
+
+    def _cancel_detour_edit(self) -> None:
+        self.detour_editor.hide()
+        self._editing_detour_id = None
+        self._detour_editor_goal_id = None
+
+    def _save_detour(self) -> None:
+        def save() -> str:
+            if self.session.goal is None or self._detour_editor_goal_id != self.session.goal.id:
+                raise ValueError("当前任务已改变，请重新打开支线编辑。")
+            values = (self.detour_text_input.toPlainText(), self.detour_url_input.text(),
+                      self.detour_purpose_input.text())
+            if self._editing_detour_id is None:
+                item = self.session.add_detour(*values)
+            else:
+                item = self.session.update_detour(self._editing_detour_id, *values)
+            self._cancel_detour_edit()
+            self._refresh()
+            _sync_rows(self.detour_list, self._detour_rows(), select=item.id)
+            return "已保存支线笔记、链接和用途。"
+        if not self._perform(save):
+            self.detour_error.setText(self.status_label.text())
+
+    def _remove_detour(self) -> None:
+        if detour_id := _selected_id(self.detour_list):
+            def remove() -> str:
+                self.session.remove_detour(detour_id)
+                self._cancel_detour_edit()
+                return "已删除选中的支线。"
+            self._perform(remove)
+
+    def _detour_rows(self) -> list[tuple[str, str]]:
+        return [(item.id, "\n".join(filter(None, (
+            item.text, f"链接：{item.url}" if item.url else "",
+            f"用途：{item.purpose}" if item.purpose else "",
+        )))) for item in self.session.detours] if self.session.memory_enabled else []
+
     def _resume(self) -> None:
-        self._perform(lambda: self.resume_label.setText(self.session.resume()))
+        def resume() -> None:
+            self.session.resume()
+            self._resume_requested_key = recovery_key(self.session.goal, self.session.progress)
+        self._perform(resume)
+
+    def _ignore_recovery(self) -> None:
+        def ignore() -> str:
+            self.session.ignore_recovery()
+            self._resume_requested_key = None
+            return "已忽略当前提示，任务与进度仍然保留。"
+        self._perform(ignore)
+
+    def _toggle_recovery(self) -> None:
+        def toggle() -> str:
+            self.session.set_recovery_paused(not self.session.recovery_paused)
+            self._resume_requested_key = None
+            return "已暂停恢复提示，可随时手动查看。" if self.session.recovery_paused else "已开启恢复提示。"
+        self._perform(toggle)
 
     def _submit(self) -> None:
         def submit() -> str:
@@ -843,6 +960,9 @@ class MainWindow(QMainWindow):
         self.detour_button.setEnabled(memory and has_goal and not pending and bool(activity.strip()))
         self.manual_detour_button.setEnabled(memory and has_goal and not pending and bool(self.activity_input.toPlainText().strip()))
         self.resume_button.setEnabled(memory and has_goal)
+        self.ignore_recovery_button.setEnabled(memory and has_goal)
+        self.pause_recovery_button.setEnabled(memory and has_goal)
+        self.pause_recovery_button.setText("开启恢复提示" if self.session.recovery_paused else "暂停恢复提示")
         self.question_input.setEnabled(delegation and has_goal)
         self.submit_button.setEnabled(delegation and has_goal)
         self.checkpoint_button.setEnabled(delegation and has_goal)
@@ -851,9 +971,21 @@ class MainWindow(QMainWindow):
 
         detours = self.session.detours if memory else []
         self.detour_hint.setText(f"已暂存 {len(detours)} 条活动，主任务与进度继续保留。" if detours else "把注意力先放回主任务，支线会留在这里。")
-        _sync_rows(self.detour_list, [(item.id, item.text) for item in detours])
+        _sync_rows(self.detour_list, self._detour_rows())
         self.detour_list.setVisible(bool(detours))
         self.detour_empty.setVisible(not detours)
+        if self._detour_editor_goal_id and (
+            not memory or not has_goal or self.session.goal.id != self._detour_editor_goal_id
+        ):
+            self._cancel_detour_edit()
+        self._refresh_detour_actions()
+        key = recovery_key(self.session.goal, self.session.progress) if has_goal else None
+        if key != self._resume_requested_key:
+            self._resume_requested_key = None
+        if memory and has_goal and self._resume_requested_key == key:
+            self.resume_label.setText(recovery_text(self.session.goal, self.session.progress, detours))
+        else:
+            self.resume_label.setText(self.session.recovery_preview())
         self._refresh_jobs()
         _sync_rows(self.event_list, [
             (event.id, f"{datetime.fromisoformat(event.occurred_at):%H:%M:%S}     {event.condition.value}     "

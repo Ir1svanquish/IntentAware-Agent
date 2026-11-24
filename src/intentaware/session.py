@@ -18,6 +18,7 @@ from intentaware.contracts import (
 from intentaware.contracts.interfaces import Classifier, Delegator
 from intentaware.delegation.demo import DemoDelegator
 from intentaware.memory.store import SQLiteStore
+from intentaware.memory.resume import recovery_key, recovery_text
 from intentaware.nlp.local import LocalActivityClassifier
 
 
@@ -215,17 +216,30 @@ class DesktopSession:
         self.classification_activity = None
         self.analysis_error = None
 
-    def add_detour(self, text: str) -> Detour:
+    def add_detour(self, text: str, url: str = "", purpose: str = "") -> Detour:
         goal = self._require_goal()
         if not self.memory_enabled:
             raise ValueError("G 条件仅启用目标与活动分析，请切换到 P、I 或 D 记录偏离。")
         if not text.strip():
             raise ValueError("请输入要暂存的内容。")
-        detour = Detour(goal_id=goal.id, text=text.strip())
+        detour = Detour(goal_id=goal.id, text=text.strip(), url=url.strip(), purpose=purpose.strip())
         with self.store.transaction():
             self.store.add_detour(detour)
             self._event("detour_saved", details={"detour_id": detour.id})
         return detour
+
+    def update_detour(self, detour_id: str, text: str, url: str = "", purpose: str = "") -> Detour:
+        self._require_goal()
+        if not self.memory_enabled:
+            raise ValueError("当前实验条件未启用支线记忆。")
+        original = next((item for item in self.detours if item.id == detour_id), None)
+        if original is None:
+            raise ValueError("找不到当前任务的这条支线记录。")
+        updated = replace(original, text=text.strip(), url=url.strip(), purpose=purpose.strip())
+        with self.store.transaction():
+            self.store.update_detour(updated)
+            self._event("detour_updated", details={"detour_id": detour_id})
+        return updated
 
     def remove_detour(self, detour_id: str) -> None:
         self._require_goal()
@@ -237,17 +251,48 @@ class DesktopSession:
             self.store.remove_detour(detour_id)
             self._event("detour_removed", details={"detour_id": detour_id})
 
+    @property
+    def recovery_paused(self) -> bool:
+        return bool(self.store.get_setting("recovery_paused", False))
+
+    def set_recovery_paused(self, paused: bool) -> None:
+        self._require_goal()
+        if not self.memory_enabled:
+            raise ValueError("当前实验条件未启用恢复提示。")
+        with self.store.transaction():
+            self.store.set_setting("recovery_paused", bool(paused))
+            self._event("recovery_paused" if paused else "recovery_resumed")
+
+    def ignore_recovery(self) -> None:
+        goal = self._require_goal()
+        if not self.memory_enabled:
+            raise ValueError("当前实验条件未启用恢复提示。")
+        with self.store.transaction():
+            self.store.set_setting(f"recovery_ignored:{goal.id}", recovery_key(goal, self.progress))
+            self._event("recovery_ignored")
+
+    def recovery_preview(self) -> str:
+        if not self.memory_enabled:
+            return "当前 G 条件未启用任务恢复。"
+        if self.goal is None:
+            return "请先在工作台设置主任务，再查看恢复提示。"
+        if self.recovery_paused:
+            return "恢复提示已暂停，仍可点击“恢复主任务”手动查看。"
+        ignored = self.store.get_setting(f"recovery_ignored:{self.goal.id}")
+        if ignored == recovery_key(self.goal, self.progress):
+            return "本条恢复提示已忽略；更新任务或进度后将提供新的提示，也可手动查看。"
+        return recovery_text(self.goal, self.progress, self.detours)
+
     def resume(self) -> str:
         goal = self._require_goal()
         if not self.memory_enabled:
             raise ValueError("当前实验条件未启用任务恢复。")
-        lines = [f"继续任务：{goal.title}"]
-        if self.progress and self.progress.note:
-            lines.append(f"已确认进度：{self.progress.note}")
-        lines.append(f"下一步：{goal.next_step or '请先填写一个具体的下一步操作。'}")
+        text = recovery_text(goal, self.progress, self.detours)
         # A button click is a request, not evidence of a meaningful main-task edit.
-        self._event("resume_requested")
-        return "\n".join(lines)
+        with self.store.transaction():
+            self.store.set_setting(f"recovery_ignored:{goal.id}", None)
+            self._event("resume_requested")
+        return text
 
     def submit_delegation(self, question: str) -> DelegationJob:
         goal = self._require_goal()

@@ -21,11 +21,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-# 恢复时间起点：支线提示出现（Proposal 定义的分心开始时刻）。
+# 恢复时间起点只认实际的支线提示事件（Proposal 定义的分心开始时刻）。
+# 注意：detour_saved 是"用户手动保存支线"，不是提示出现；若也当起点，
+# 同一次分心会出现提示+保存两条起点、被算成两笔，故明确排除。
 DISTRACTION_PROMPT_EVENT = "distraction_prompted"
-# 兼容备选起点：某些实现可能用 detour_saved 表示支线被标出。
-DETOUR_SAVED_EVENT = "detour_saved"
-START_EVENTS = (DISTRACTION_PROMPT_EVENT, DETOUR_SAVED_EVENT)
+START_EVENTS = (DISTRACTION_PROMPT_EVENT,)
 RESUME_EVENT = "resume_requested"  # 仅作参考计数，不用于计时
 EFFECTIVE_EDIT_EVENT = "effective_edit"
 SUBMIT_EVENT = "delegation_submitted"
@@ -144,7 +144,9 @@ def delegation_delays(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def resume_times(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """计算支线提示出现到下一次有效主任务编辑的恢复时间。
 
-    起点：``distraction_prompted``（或兼容 ``detour_saved``）——分心/支线提示出现的时刻。
+    起点：仅 ``distraction_prompted``——分心/支线提示出现的时刻。
+    ``detour_saved``（用户手动保存支线）不作为起点：它不是提示，且同一次
+    分心可能既有提示又有手动保存，算两个起点会重复计时。
     终点：``effective_edit``——下一次有意义的主任务编辑。
     两者必须同一 run_id 且同一 goal_id；跨任务的下一次编辑不算恢复。
 
@@ -211,8 +213,8 @@ def resume_times(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "missing_end_count": len(missing_end),
         "missing_end": missing_end,
         "start_definition": (
-            "起点为 distraction_prompted（兼容 detour_saved），即支线提示出现时刻；"
-            "resume_requested 仅计为点击次数，不作为计时起点。"
+            "起点仅为 distraction_prompted（支线提示出现）；detour_saved 是手动保存支线，"
+            "不作为起点以免同一次分心重复计时；resume_requested 仅计为点击次数。"
         ),
         "endpoint_definition": (
             "终点为同一 run_id、同一 goal_id 的下一条 effective_edit；"
@@ -243,6 +245,6 @@ def summarize_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 __all__ = [
     "load_events", "delegation_delays", "resume_times", "condition_counts",
-    "summarize_events", "DISTRACTION_PROMPT_EVENT", "DETOUR_SAVED_EVENT",
+    "summarize_events", "DISTRACTION_PROMPT_EVENT",
     "START_EVENTS", "RESUME_EVENT", "EFFECTIVE_EDIT_EVENT",
 ]

@@ -175,3 +175,30 @@ def test_resume_reports_missing_start_and_end_explicitly():
     assert report["measured"] is None
     assert report["missing_end_count"] == 1   # r1 提示无终点
     assert report["missing_start_count"] == 1  # r2 编辑无起点
+
+
+def test_detour_saved_is_not_a_start_event():
+    """组长的边界：手动保存支线不算起点，否则同一次分心被算两笔。"""
+    # 0s 提示、5s 手动保存支线、10s 有效编辑 -> 只应有一笔 10s
+    events = [
+        {"run_id": "r1", "condition": "P", "name": "distraction_prompted", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:00+00:00"},
+        {"run_id": "r1", "condition": "P", "name": "detour_saved", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:05+00:00"},
+        {"run_id": "r1", "condition": "P", "name": "effective_edit", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:10+00:00"},
+    ]
+    report = summarize_events(events)["resume"]
+    assert report["measured"]["n"] == 1
+    assert report["measured"]["mean"] == 10.0
+    assert report["prompt_count"] == 1
+
+
+def test_only_detour_saved_without_prompt_reports_missing_start():
+    """只保存支线、没有提示时，报告缺起点，不臆造一笔恢复时间。"""
+    events = [
+        {"run_id": "r1", "condition": "P", "name": "detour_saved", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:05+00:00"},
+        {"run_id": "r1", "condition": "P", "name": "effective_edit", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:10+00:00"},
+    ]
+    report = summarize_events(events)["resume"]
+    assert report["measured"] is None
+    assert report["prompt_count"] == 0
+    assert report["missing_start_count"] == 1
+    assert report["missing_start"][0]["edited_at"] == "2026-08-12T10:00:10+00:00"

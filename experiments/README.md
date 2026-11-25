@@ -48,7 +48,7 @@ B 模块 `nlp/evaluate.py` 负责用 LLM 分类器跑样本并计算 Macro-F1、
 
 ### 恢复时间的硬约束
 
-恢复时间从**支线提示出现**（`distraction_prompted`，兼容 `detour_saved`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。研究者需在受控研究中显式记录起点和终点：
+恢复时间从**支线提示出现**（`distraction_prompted`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。起点**只认提示事件**：`detour_saved`（手动保存支线）不是提示，不作为起点，否则同一次分心会因"提示 + 手动保存"被算成两笔。研究者需在受控研究中显式记录起点和终点：
 
 ```python
 session.record_event("distraction_prompted", {"source": "optional_exploration"})

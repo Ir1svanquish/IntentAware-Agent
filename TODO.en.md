@@ -2,7 +2,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 
 # Four-week Sprint Checklist
 
-> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. LLM integration, live retrieval, and research evaluation remain future work. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
+> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. The evaluation tools and candidate datasets are available. LLM integration, live retrieval, and the formal study are still in progress. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
 
 ## Week 1 — Foundation and early study preparation
 
@@ -24,7 +24,8 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - [ ] [B] Improve and evaluate goal clarification, next-action extraction, four-way classification, and reasons using NLP/LLMs
 - [ ] [C] Evaluate and improve resumption strategies based on confirmed progress
 - [ ] [A+B+C] Manually verify observation → correction → classification → detour → resumption on supported platforms
-- [ ] [E] Prepare and separate prompt-development and held-out evaluation examples
+- [x] [E] Prepare 60 classification candidates and 40 delegation candidates, and check the classification candidates against the 40 development examples for exact overlap
+- [ ] [E] Have two reviewers independently label the classification candidates, check semantic overlap, and freeze the held-out datasets
 
 ## Week 3 — Delegation and pilot
 
@@ -39,14 +40,16 @@ Language / 语言：[简体中文](TODO.md) | **English**
 ## Week 4 — Evaluation and submission
 
 - [ ] [E+Team] Evaluate 60 task-context examples (two reviewers) and 40 held-out requests as proposed
-- [ ] [E] Keyword baseline, macro-F1, false-warning rate, output quality, source support, latency and token usage
+- [x] [E] Implement the keyword baseline, macro-F1, false-warning rate, delegation delay, and resumption-time analysis
+- [ ] [E] Report classification metrics, output quality, source support, latency, and token usage on formal study data
 - [ ] [Team] Subject to approvals/consent, conduct planned 12–18-person study; honestly report unfinished tasks
-- [ ] [E] Log next meaningful main-task edit, not merely a “return” button, for resumption time
+- [ ] [A/F/E] Record the side-question prompt and the next meaningful edit of the same task, then verify both events in desktop JSONL exports
 - [ ] [Team] Demo, tests, analysis and final report
 
 ## Starter entry points
 
 - [Getting started and module integration (Chinese)](docs/GETTING_STARTED.md): installation, demo, module replacement and tests.
+- [Evaluation tools](experiments/README.en.md) and [candidate datasets (Chinese)](experiments/data/README.md).
 - `src/intentaware/session.py`: connects the UI, NLP, persistence and background delegation.
 - `src/intentaware/activity/`: foreground observation, stable sampling, and the task monitor; `src/intentaware/nlp/local.py`: local task inference and activity classification.
 - Normal launch enables recognition; `--demo` uses simulated window observations; `--manual` starts with recognition paused.

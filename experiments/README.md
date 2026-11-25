@@ -19,23 +19,23 @@
 
 ## E 模块评估工具
 
-统一入口为 `python -m experiments.evaluate`，全部只用 Python 标准库，不需要 API 密钥。宏大的样本标注、两名评审核查和 12–18 人组内实验仍需研究者按伦理流程完成，工具只做可复现的机械计算，不生成或伪造数据。
+在仓库根目录运行 `python -m experiments.evaluate`。工具只使用 Python 标准库，支持日志校验、分类基线和事件分析。[候选样本与标注流程](data/README.md)已提供，双人标注、正式评估和组内实验继续在 [Issue #5](https://github.com/Ir1svanquish/IntentAware-Agent/issues/5) 跟进。
 
 ```bash
 # 1. 导出事件自检：结构与委托生命周期
 python -m experiments.evaluate check events.jsonl
 
-# 2. 保留样本上的关键词基线：Macro-F1、混淆矩阵、误提醒率
+# 2. 用候选样本试跑关键词基线，在正式评估时换用已冻结的样本
 python -m experiments.evaluate baseline experiments/data/holdout_contexts.jsonl
 
 # 3. 事件日志指标：委托处理/交付延迟、恢复时间
 python -m experiments.evaluate events events.jsonl
 
 # 4. 开发集与保留集的字面隔离检查
-python -m experiments.evaluate isolate dev_samples.jsonl holdout_contexts.jsonl
+python -m experiments.evaluate isolate dev_samples.jsonl experiments/data/holdout_contexts.jsonl
 ```
 
-每个子命令加 `--json` 可输出结构化结果。退出码：`0` 正常，`1` 检查未通过，`2` 输入错误。
+每个子命令加 `--json` 可输出结构化结果。退出码 `0` 表示正常，`1` 表示检查未通过，`2` 表示输入错误。示例中的 `dev_samples.jsonl` 代表 B 模块的开发样本文件。
 
 ### 与 B 模块的分工
 
@@ -48,11 +48,11 @@ B 模块 `nlp/evaluate.py` 负责用 LLM 分类器跑样本并计算 Macro-F1、
 
 ### 恢复时间的硬约束
 
-恢复时间从**支线提示出现**（`distraction_prompted`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。起点**只认提示事件**：`detour_saved`（手动保存支线）不是提示，不作为起点，否则同一次分心会因"提示 + 手动保存"被算成两笔。研究者需在受控研究中显式记录起点和终点：
+恢复时间从**支线提示出现**（`distraction_prompted`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。起点**只认提示事件**：`detour_saved`（手动保存支线）不是提示，不作为起点，否则同一次分心会因"提示 + 手动保存"被算成两笔。当前桌面端的这两个事件仍待 A/F 接入。研究者可在受控实验中按下面的方式记录提示和观察到的有效编辑。
 
 ```python
 session.record_event("distraction_prompted", {"source": "optional_exploration"})
-session.record_event("effective_edit", {"source": "goal_correction"})
+session.record_event("effective_edit", {"source": "study_observation"})
 ```
 
 `resume_requested`（点击"恢复主任务"按钮）**只作参考计数，不作为计时起点**——用户可能在提示出现很久后才点恢复，用它计时会漏掉中间的分心时长。例如提示在第 0 秒、点击恢复在第 8 秒、编辑在第 10 秒，恢复时间是 10 秒而不是 2 秒。

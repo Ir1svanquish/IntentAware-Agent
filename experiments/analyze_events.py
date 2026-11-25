@@ -1,12 +1,15 @@
 """从实验事件 JSONL 计算委托延迟与任务恢复时间。
 
 只消费界面的真实事件记录，不读取窗口标题正文，也不推断用户是否完成工作。
-恢复时间严格按 Proposal 要求：以 ``resume_requested`` 之后的下一个
-``effective_edit``（下一次有意义的主任务编辑）为终点，缺这个事件就如实
-报告"不可计算"，绝不用返回按钮、窗口切换或标题分类替代。
 
-研究者需在受控研究中显式记录终点事件：
-    session.record_event("effective_edit", {"source": "manual"})
+恢复时间严格按 Proposal 要求：从**支线提示出现**（``distraction_prompted``）
+开始，到**下一次有意义的主任务编辑**（``effective_edit``）结束，两者必须在
+同一 run、同一 goal_id 下。缺起点或终点就如实标注，绝不用"点击恢复主任务"
+按钮、窗口切换或标题分类替代——点击恢复只是用户动作，不是分心开始时刻。
+
+研究者需在受控研究中显式记录这两个事件：
+    session.record_event("distraction_prompted", {"source": "optional_exploration"})
+    session.record_event("effective_edit", {"source": "goal_correction"})
 """
 
 from __future__ import annotations
@@ -18,7 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-RESUME_EVENT = "resume_requested"
+# 恢复时间起点：支线提示出现（Proposal 定义的分心开始时刻）。
+DISTRACTION_PROMPT_EVENT = "distraction_prompted"
+# 兼容备选起点：某些实现可能用 detour_saved 表示支线被标出。
+DETOUR_SAVED_EVENT = "detour_saved"
+START_EVENTS = (DISTRACTION_PROMPT_EVENT, DETOUR_SAVED_EVENT)
+RESUME_EVENT = "resume_requested"  # 仅作参考计数，不用于计时
 EFFECTIVE_EDIT_EVENT = "effective_edit"
 SUBMIT_EVENT = "delegation_submitted"
 COMPLETE_EVENT = "delegation_completed"
@@ -102,14 +110,20 @@ def delegation_delays(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
     processing: list[float] = []
     delivery: list[float] = []
+    # 缺少完成时间的委托仍保留在 missing_completion 中，但不得进入
+    # delivery_seconds：交付延迟的定义是 completed -> delivered，
+    # 用 submitted 代替 completed 会把后台处理时间误算进交付延迟。
+    excluded_from_delivery: list[str] = []
     for job_id, start in submitted.items():
         if job_id in completed:
             value = _seconds_between(start, completed[job_id])
             if value is not None and value >= 0:
                 processing.append(value)
         if job_id in delivered:
-            finish_time = completed.get(job_id, start)
-            value = _seconds_between(finish_time, delivered[job_id][0])
+            if job_id not in completed:
+                excluded_from_delivery.append(job_id)
+                continue
+            value = _seconds_between(completed[job_id], delivered[job_id][0])
             if value is not None and value >= 0:
                 delivery.append(value)
 
@@ -122,47 +136,87 @@ def delegation_delays(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "delivery_methods": dict(methods),
         "missing_completion": sorted(set(submitted) - set(completed)),
         "missing_delivery": sorted(set(completed) - set(delivered)),
+        "excluded_from_delivery": sorted(excluded_from_delivery),
+        "delivery_definition": "completed -> delivered；缺完成时间的委托不计入。",
     }
 
 
 def resume_times(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """计算 resume_requested 到下一次 effective_edit 的恢复时间。
+    """计算支线提示出现到下一次有效主任务编辑的恢复时间。
 
-    终点必须是显式的有效编辑事件；缺失时计入 unresolved，返回 None，
-    不以任何其他事件替代，避免把误提醒率或恢复时间算成假数据。
+    起点：``distraction_prompted``（或兼容 ``detour_saved``）——分心/支线提示出现的时刻。
+    终点：``effective_edit``——下一次有意义的主任务编辑。
+    两者必须同一 run_id 且同一 goal_id；跨任务的下一次编辑不算恢复。
+
+    ``resume_requested``（点击"恢复主任务"按钮）只作参考计数，不作为起点：
+    用户可能在提示出现很久后才点击恢复，用它计时会漏掉中间的分心时长。
+    缺起点或缺终点都明确列在 missing_start / missing_end 中，返回 None，
+    不以按钮点击、窗口切换或标题分类替代。
     """
     indexed = list(enumerate(events))
     measured: list[float] = []
-    unresolved: list[dict[str, str]] = []
+    missing_start: list[dict[str, str]] = []
+    missing_end: list[dict[str, str]] = []
 
+    # 每个起点配对同一 run、同一 goal 的下一条有效编辑。
     for position, event in indexed:
-        if event["name"] != RESUME_EVENT:
+        if event["name"] not in START_EVENTS:
             continue
         run_id = event["run_id"]
+        goal_id = event.get("goal_id")
         end = next(
             (
                 later for _, later in indexed[position + 1:]
-                if later["name"] == EFFECTIVE_EDIT_EVENT and later["run_id"] == run_id
+                if later["name"] == EFFECTIVE_EDIT_EVENT
+                and later["run_id"] == run_id
+                and later.get("goal_id") == goal_id
             ),
             None,
         )
         if end is None:
-            unresolved.append({"run_id": run_id, "occurred_at": event["occurred_at"]})
+            missing_end.append({
+                "run_id": run_id, "goal_id": str(goal_id or ""),
+                "started_at": event["occurred_at"], "start_event": event["name"],
+            })
             continue
         value = _seconds_between(event["occurred_at"], end["occurred_at"])
         if value is None or value < 0:
-            unresolved.append({"run_id": run_id, "occurred_at": event["occurred_at"]})
+            missing_end.append({
+                "run_id": run_id, "goal_id": str(goal_id or ""),
+                "started_at": event["occurred_at"], "start_event": event["name"],
+            })
         else:
             measured.append(value)
 
+    # 有有效编辑但找不到同 run、同 goal 的起点：明确标注，不臆造起点。
+    starts_by_key = {
+        (e["run_id"], e.get("goal_id")) for e in events if e["name"] in START_EVENTS
+    }
+    for event in events:
+        if event["name"] != EFFECTIVE_EDIT_EVENT:
+            continue
+        key = (event["run_id"], event.get("goal_id"))
+        if key not in starts_by_key:
+            missing_start.append({
+                "run_id": event["run_id"], "goal_id": str(event.get("goal_id") or ""),
+                "edited_at": event["occurred_at"],
+            })
+
     return {
-        "resume_requests": sum(1 for e in events if e["name"] == RESUME_EVENT),
+        "prompt_count": sum(1 for e in events if e["name"] in START_EVENTS),
+        "resume_click_count": sum(1 for e in events if e["name"] == RESUME_EVENT),
         "measured": _describe(measured),
-        "unresolved_count": len(unresolved),
-        "unresolved": unresolved,
+        "missing_start_count": len(missing_start),
+        "missing_start": missing_start,
+        "missing_end_count": len(missing_end),
+        "missing_end": missing_end,
+        "start_definition": (
+            "起点为 distraction_prompted（兼容 detour_saved），即支线提示出现时刻；"
+            "resume_requested 仅计为点击次数，不作为计时起点。"
+        ),
         "endpoint_definition": (
-            "resume_requested 之后同一 run_id 的下一条 effective_edit；"
-            "未显式记录则不计算，不以窗口切换或分类事件替代。"
+            "终点为同一 run_id、同一 goal_id 的下一条 effective_edit；"
+            "跨任务编辑、按钮点击、窗口切换与标题分类均不算终点。"
         ),
     }
 
@@ -189,5 +243,6 @@ def summarize_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 __all__ = [
     "load_events", "delegation_delays", "resume_times", "condition_counts",
-    "summarize_events", "RESUME_EVENT", "EFFECTIVE_EDIT_EVENT",
+    "summarize_events", "DISTRACTION_PROMPT_EVENT", "DETOUR_SAVED_EVENT",
+    "START_EVENTS", "RESUME_EVENT", "EFFECTIVE_EDIT_EVENT",
 ]

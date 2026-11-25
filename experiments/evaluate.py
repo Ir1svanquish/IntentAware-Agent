@@ -64,15 +64,21 @@ def _print_events(report: dict) -> None:
         else:
             print(f"  {name}: 无数据")
     print(f"  交付方式：{delegation['delivery_methods'] or '无'}")
+    if delegation.get("excluded_from_delivery"):
+        print(f"  缺完成时间、已从交付延迟排除：{', '.join(delegation['excluded_from_delivery'])}")
     print("\n恢复时间：")
     if resume["measured"]:
         stats = resume["measured"]
         print(f"  已测 n={stats['n']} mean={stats['mean']:.1f}s median={stats['median']:.1f}s")
     else:
         print("  无可计算样本")
-    if resume["unresolved_count"]:
-        print(f"  {resume['unresolved_count']} 次恢复缺少 effective_edit 终点，未计入")
-    print(f"\n{resume['endpoint_definition']}")
+    print(f"  支线提示 {resume['prompt_count']} 次 / 点击恢复 {resume['resume_click_count']} 次（点击不计入计时）")
+    if resume["missing_start_count"]:
+        print(f"  {resume['missing_start_count']} 条有效编辑缺少起点，未计入")
+    if resume["missing_end_count"]:
+        print(f"  {resume['missing_end_count']} 条支线提示缺少有效编辑终点，未计入")
+    print(f"\n{resume['start_definition']}")
+    print(resume["endpoint_definition"])
 
 
 def _print_isolation(report: dict) -> None:

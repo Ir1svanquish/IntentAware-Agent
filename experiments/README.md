@@ -48,13 +48,18 @@ B 模块 `nlp/evaluate.py` 负责用 LLM 分类器跑样本并计算 Macro-F1、
 
 ### 恢复时间的硬约束
 
-恢复时间只认 `resume_requested` 之后同一 `run_id` 的下一条 `effective_edit`（下一次有意义的主任务编辑）。研究者需在受控研究中显式记录终点：
+恢复时间从**支线提示出现**（`distraction_prompted`，兼容 `detour_saved`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。研究者需在受控研究中显式记录起点和终点：
 
 ```python
-session.record_event("effective_edit", {"source": "manual"})
+session.record_event("distraction_prompted", {"source": "optional_exploration"})
+session.record_event("effective_edit", {"source": "goal_correction"})
 ```
 
-缺这个事件时工具如实报告"不可计算"，**绝不用返回按钮、窗口切换或标题分类替代**。这是 Proposal 的明确要求。
+`resume_requested`（点击"恢复主任务"按钮）**只作参考计数，不作为计时起点**——用户可能在提示出现很久后才点恢复，用它计时会漏掉中间的分心时长。例如提示在第 0 秒、点击恢复在第 8 秒、编辑在第 10 秒，恢复时间是 10 秒而不是 2 秒。
+
+跨任务的下一次编辑不算恢复；缺少起点或缺终点时分别列入 `missing_start` / `missing_end` 并报告不可计算，**绝不用按钮点击、窗口切换或标题分类替代**。这是 Proposal 的明确要求。
+
+交付延迟（`analyze_events.py`）只统计 `completed -> delivered`；缺少 `delegation_completed` 的委托保留在 `missing_completion`，并从交付延迟中排除，不会拿提交时间冒充完成时间。
 
 ### 样本格式
 

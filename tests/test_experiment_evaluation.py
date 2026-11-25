@@ -112,32 +112,66 @@ def test_sample_isolation_detects_overlaps():
 
 def test_events_delegation_and_resume_without_fabricating_endpoint():
     events = [
-        {"run_id": "r1", "condition": "D", "name": "delegation_submitted", "job_id": "j1", "occurred_at": "2026-08-12T10:00:00+00:00"},
-        {"run_id": "r1", "condition": "D", "name": "delegation_completed", "job_id": "j1", "occurred_at": "2026-08-12T10:00:02+00:00"},
-        {"run_id": "r1", "condition": "D", "name": "delegation_delivered", "job_id": "j1", "details": {"method": "checkpoint"}, "occurred_at": "2026-08-12T10:00:07+00:00"},
-        {"run_id": "r1", "condition": "D", "name": "resume_requested", "occurred_at": "2026-08-12T10:00:10+00:00"},
+        {"run_id": "r1", "condition": "D", "name": "delegation_submitted", "job_id": "j1", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:00+00:00"},
+        {"run_id": "r1", "condition": "D", "name": "delegation_completed", "job_id": "j1", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:02+00:00"},
+        {"run_id": "r1", "condition": "D", "name": "delegation_delivered", "job_id": "j1", "goal_id": "g1", "details": {"method": "checkpoint"}, "occurred_at": "2026-08-12T10:00:07+00:00"},
     ]
     report = summarize_events(events)
     assert report["delegation"]["processing_seconds"]["mean"] == 2.0
     assert report["delegation"]["delivery_seconds"]["mean"] == 5.0
     assert report["delegation"]["delivery_methods"] == {"checkpoint": 1}
     assert report["resume"]["measured"] is None
-    assert report["resume"]["unresolved_count"] == 1
-
-    with_edit = events + [{
-        "run_id": "r1", "condition": "D", "name": "effective_edit",
-        "occurred_at": "2026-08-12T10:00:13+00:00",
-    }]
-    measured = summarize_events(with_edit)["resume"]
-    assert measured["measured"]["mean"] == 3.0
-    assert measured["unresolved_count"] == 0
 
 
-def test_resume_endpoint_must_share_run_id():
+def test_delivery_without_completion_is_excluded_not_miscalculated():
+    """组长指出：缺完成时间时不能拿提交时间算交付延迟。"""
     events = [
-        {"run_id": "r1", "condition": "D", "name": "resume_requested", "occurred_at": "2026-08-12T10:00:00+00:00"},
-        {"run_id": "r2", "condition": "D", "name": "effective_edit", "occurred_at": "2026-08-12T10:00:01+00:00"},
+        {"run_id": "r1", "condition": "D", "name": "delegation_submitted", "job_id": "j2", "occurred_at": "2026-08-12T10:00:00+00:00"},
+        {"run_id": "r1", "condition": "D", "name": "delegation_delivered", "job_id": "j2", "details": {"method": "checkpoint"}, "occurred_at": "2026-08-12T10:00:10+00:00"},
     ]
-    report = summarize_events(events)
-    assert report["resume"]["measured"] is None
-    assert report["resume"]["unresolved_count"] == 1
+    delegation = summarize_events(events)["delegation"]
+    assert delegation["delivery_seconds"] is None
+    assert delegation["missing_completion"] == ["j2"]
+    assert delegation["excluded_from_delivery"] == ["j2"]
+
+
+def test_resume_starts_at_prompt_not_at_click():
+    """组长的时间线：0s 提示、8s 点击恢复、10s 编辑 -> 应为 10s 而非 2s。"""
+    events = [
+        {"run_id": "r1", "condition": "P", "name": "distraction_prompted", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:00+00:00"},
+        {"run_id": "r1", "condition": "P", "name": "resume_requested", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:08+00:00"},
+        {"run_id": "r1", "condition": "P", "name": "effective_edit", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:10+00:00"},
+    ]
+    report = summarize_events(events)["resume"]
+    assert report["measured"]["mean"] == 10.0
+    assert report["prompt_count"] == 1
+    assert report["resume_click_count"] == 1
+    assert report["missing_start_count"] == 0
+    assert report["missing_end_count"] == 0
+
+
+def test_resume_endpoint_must_share_run_and_goal():
+    """跨 run 或跨任务的下一次编辑都不能算作恢复。"""
+    prompt = {"run_id": "r1", "condition": "D", "name": "distraction_prompted", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:00+00:00"}
+    other_goal_edit = {"run_id": "r1", "condition": "D", "name": "effective_edit", "goal_id": "g2", "occurred_at": "2026-08-12T10:00:05+00:00"}
+    same_goal_edit = {"run_id": "r1", "condition": "D", "name": "effective_edit", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:09+00:00"}
+
+    only_other = summarize_events([prompt, other_goal_edit])["resume"]
+    assert only_other["measured"] is None
+    assert only_other["missing_end_count"] == 1
+    assert only_other["missing_start_count"] == 1  # g2 的编辑没有同目标起点
+
+    both = summarize_events([prompt, other_goal_edit, same_goal_edit])["resume"]
+    assert both["measured"]["mean"] == 9.0
+    assert both["missing_start_count"] == 1  # g2 编辑仍无起点
+
+
+def test_resume_reports_missing_start_and_end_explicitly():
+    events = [
+        {"run_id": "r1", "condition": "P", "name": "distraction_prompted", "goal_id": "g1", "occurred_at": "2026-08-12T10:00:00+00:00"},
+        {"run_id": "r2", "condition": "P", "name": "effective_edit", "goal_id": "g3", "occurred_at": "2026-08-12T10:00:03+00:00"},
+    ]
+    report = summarize_events(events)["resume"]
+    assert report["measured"] is None
+    assert report["missing_end_count"] == 1   # r1 提示无终点
+    assert report["missing_start_count"] == 1  # r2 编辑无起点

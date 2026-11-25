@@ -25,6 +25,7 @@ python -m pytest
 | `test_storage.py` | 保存、更新、删除、重启与事件导出 |
 | `test_session.py` | 异步分析与委托、G/P/I/D 限制、条件切换、交付与异常 |
 | `test_ui.py` | Qt 操作、后台响应、结果展示与窗口布局 |
+| `test_check_events.py` | 事件 JSONL 的字段与时间戳校验、委托生命周期配对、条件一致性 |
 
 Linux 无显示环境可运行：
 

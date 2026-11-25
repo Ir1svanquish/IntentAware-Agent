@@ -13,8 +13,23 @@ The desktop observes application names and window titles, then uses local rules 
 | Delegation | Answer quality, source and citation support, and unresolved points |
 | Burden and cost | Perceived burden, latency, and token usage; local rules and offline examples do not constitute live-model evaluation |
 
-The experiment page exports JSONL for the current `run_id`. Use `job_id` to distinguish `delegation_completed` (ready in the background) from `delegation_delivered` (delivered). The resume button logs `resume_requested`. Resumption time must end at the **next meaningful main-task edit**. A return click, window switch, or title-based classification cannot substitute for that edit; observe it separately in the controlled study.
+The experiment page exports JSONL for the current `run_id`. Use `job_id` to distinguish `delegation_completed` (ready in the background) from `delegation_delivered` (delivered). The resume button logs `resume_requested` for counting clicks.
 
 Raw ongoing window titles are not appended to event exports. Automatically seeded and user-edited task titles are saved in local task records. Avoid identifiable personal data in study records, and review explicitly saved task, progress, and detour content before sharing.
+
+## Evaluation tools
+
+Run the CLI from the repository root. These commands use the Python standard library. Add `--json` for machine-readable output.
+
+```bash
+python -m experiments.evaluate check events.jsonl
+python -m experiments.evaluate events events.jsonl
+python -m experiments.evaluate baseline experiments/data/holdout_contexts.jsonl
+python -m experiments.evaluate isolate dev_samples.jsonl experiments/data/holdout_contexts.jsonl
+```
+
+Replace `dev_samples.jsonl` with the B module's development dataset. The candidate pool contains 60 classification examples and 40 delegation requests. Use the baseline command on candidates to check the workflow. Formal evaluation uses datasets frozen after reviewer checks. [Candidate datasets and reviewer workflow (Chinese)](data/README.md).
+
+Measure resumption from `distraction_prompted` to the next meaningful main-task edit (`effective_edit`) under the same `run_id` and `goal_id`. The desktop integration for these events is pending. The analyzer reports missing start or end events and excludes incomplete pairs from timing statistics. Delegation delivery delay uses `delegation_completed` and `delegation_delivered`.
 
 [Setup guide (Chinese)](../docs/GETTING_STARTED.md) · [Development and evaluation tasks](../TODO.en.md)

@@ -71,6 +71,8 @@ class Detour:
     text: str
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=utc_now)
+    url: str = ""
+    purpose: str = ""
 
 
 @dataclass(frozen=True)

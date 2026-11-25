@@ -35,7 +35,7 @@ python -m intentaware --demo --data-dir ./demo-data
 3. 点击 **暂存为支线**，在「支线与恢复」页确认记录出现，再点击 **恢复主任务**，检查已确认进度与下一步。以同一数据目录重启后，任务、进度和支线仍应保留；在当前轮次再次点击恢复，可获得该轮次的恢复事件。
 4. 保持实验条件为 **D**，打开「委托」页，输入问题并点击 **提交委托**。任务从「处理中」变为「待交付」，此时答案仍隐藏，窗口可以继续操作。
 5. 点击 **到达检查点**，检查任务变为「已交付」并显示离线示例。再提交两次，分别验证 **提前查看** 与 **取消委托**：提前查看用于「待交付」任务，取消用于「处理中」或「待交付」任务。取消后应显示「已取消」，不展示该任务答案。
-6. 打开「实验与记录」，点击 **导出 JSONL** 并选择文件名。检查同一 `job_id` 的 `delegation_completed` 与 `delegation_delivered` 分开记录。**恢复主任务** 对应 `resume_requested`，研究所需的下一次有效主任务编辑仍需单独观测。
+6. 打开「实验与记录」，点击 **导出 JSONL** 并选择文件名。检查同一 `job_id` 的 `delegation_completed` 与 `delegation_delivered` 分开记录。从仓库根目录运行 `python -m experiments.evaluate check events.jsonl` 校验导出的日志。点击 **恢复主任务** 会记录 `resume_requested`，研究计时需要另行记录提示和下一次有效主任务编辑。
 
 「实验与记录」中的 **填入演示示例** 仅用于填入可编辑示例；检查内容后再保存修正或提交分析。
 
@@ -60,7 +60,7 @@ python -m intentaware --demo --data-dir ./demo-data
 | [B 目标与活动分类](https://github.com/Ir1svanquish/IntentAware-Agent/issues/2) | [`nlp/local.py`](../src/intentaware/nlp/local.py) 的 `LocalTaskRecognizer` 与 `LocalActivityClassifier`。[`nlp/demo.py`](../src/intentaware/nlp/demo.py) 保留原有离线分类器。 | [`test_task_inference.py`](../tests/test_task_inference.py)、[`test_classifier.py`](../tests/test_classifier.py)，覆盖标题推断、低置信度和四分类。 |
 | [C 任务记忆与恢复](https://github.com/Ir1svanquish/IntentAware-Agent/issues/3) | [`memory/store.py`](../src/intentaware/memory/store.py) 的 `SQLiteStore`；[`DesktopSession.resume()`](../src/intentaware/session.py) 组织恢复提示。 | [`test_storage.py`](../tests/test_storage.py) 和同一数据目录重启检查。 |
 | [D 异步委托](https://github.com/Ir1svanquish/IntentAware-Agent/issues/4) | [`delegation/demo.py`](../src/intentaware/delegation/demo.py) 的 `DemoDelegator`；[`session.py`](../src/intentaware/session.py) 管理后台执行与交付。 | [`test_session.py`](../tests/test_session.py)，检查完成、交付、失败与取消。 |
-| [E 研究评估](https://github.com/Ir1svanquish/IntentAware-Agent/issues/5) | [`experiments/`](../experiments/)；[`contracts/models.py`](../src/intentaware/contracts/models.py) 定义 `ExperimentEvent`，会话记录实验事件。 | 分别导出 G/P/I/D JSONL，按 `run_id`、`job_id` 核对事件，并独立记录有效编辑。 |
+| [E 研究评估](https://github.com/Ir1svanquish/IntentAware-Agent/issues/5) | [实验评估工具](../experiments/README.md)和[候选样本](../experiments/data/README.md)。 | 分别导出 G/P/I/D JSONL，用 `experiments.evaluate` 核对事件。正式恢复计时还需接入同一任务的提示与有效编辑事件。 |
 | [F 前台观察与集成](https://github.com/Ir1svanquish/IntentAware-Agent/issues/6) | [`activity/observer.py`](../src/intentaware/activity/observer.py) 适配系统；[`activity/monitor.py`](../src/intentaware/activity/monitor.py) 稳定采样与协调任务；[`__main__.py`](../src/intentaware/__main__.py) 装配模式。 | [`test_observer.py`](../tests/test_observer.py)、[`test_monitor.py`](../tests/test_monitor.py) 和完整测试。 |
 
 共享任务类型与接口位于 [`contracts/models.py`](../src/intentaware/contracts/models.py) 和 [`contracts/interfaces.py`](../src/intentaware/contracts/interfaces.py)，窗口观察与候选任务类型位于 [`activity/models.py`](../src/intentaware/activity/models.py)。默认数据目录由 [`config.py`](../src/intentaware/config.py) 选择。

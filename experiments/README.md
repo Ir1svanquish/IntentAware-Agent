@@ -17,4 +17,58 @@
 
 持续观察的原始窗口标题不会追加到事件导出，自动生成或人工修正的任务标题会保存在本地任务中。实验记录避免包含可识别个人数据，分享前检查用户主动保存的任务、进度与支线内容。
 
+## E 模块评估工具
+
+在仓库根目录运行 `python -m experiments.evaluate`。工具只使用 Python 标准库，支持日志校验、分类基线和事件分析。[候选样本与标注流程](data/README.md)已提供，双人标注、正式评估和组内实验继续在 [Issue #5](https://github.com/Ir1svanquish/IntentAware-Agent/issues/5) 跟进。
+
+```bash
+# 1. 导出事件自检：结构与委托生命周期
+python -m experiments.evaluate check events.jsonl
+
+# 2. 用候选样本试跑关键词基线，在正式评估时换用已冻结的样本
+python -m experiments.evaluate baseline experiments/data/holdout_contexts.jsonl
+
+# 3. 事件日志指标：委托处理/交付延迟、恢复时间
+python -m experiments.evaluate events events.jsonl
+
+# 4. 开发集与保留集的字面隔离检查
+python -m experiments.evaluate isolate dev_samples.jsonl experiments/data/holdout_contexts.jsonl
+```
+
+每个子命令加 `--json` 可输出结构化结果。退出码 `0` 表示正常，`1` 表示检查未通过，`2` 表示输入错误。示例中的 `dev_samples.jsonl` 代表 B 模块的开发样本文件。
+
+### 与 B 模块的分工
+
+B 模块 `nlp/evaluate.py` 负责用 LLM 分类器跑样本并计算 Macro-F1、逐标签 P/R/F1 和 Token/延迟；E 模块不重复实现这部分，只做：
+
+- **关键词基线**：`baseline.py` 提供可复现的下界，接口兼容 B 模块的 `Classifier`，可注入 `nlp.evaluate`。
+- **误提醒率**：`metrics.py` 在 G 条件下把"实际在推进任务、却被判为分心/不确定"当作误提醒，口径写在输出里。
+- **事件指标**：`analyze_events.py` 计算委托处理延迟（提交→完成）、交付延迟（完成→交付）和恢复时间。
+- **样本隔离**：`samples.py` 检查开发集与保留集的 ID、活动描述和目标+活动组合是否重复。
+
+### 恢复时间的硬约束
+
+恢复时间从**支线提示出现**（`distraction_prompted`）开始，到**下一次有意义的主任务编辑**（`effective_edit`）结束，两者必须在同一 `run_id`、同一 `goal_id` 下。起点**只认提示事件**：`detour_saved`（手动保存支线）不是提示，不作为起点，否则同一次分心会因"提示 + 手动保存"被算成两笔。当前桌面端的这两个事件仍待 A/F 接入。研究者可在受控实验中按下面的方式记录提示和观察到的有效编辑。
+
+```python
+session.record_event("distraction_prompted", {"source": "optional_exploration"})
+session.record_event("effective_edit", {"source": "study_observation"})
+```
+
+`resume_requested`（点击"恢复主任务"按钮）**只作参考计数，不作为计时起点**——用户可能在提示出现很久后才点恢复，用它计时会漏掉中间的分心时长。例如提示在第 0 秒、点击恢复在第 8 秒、编辑在第 10 秒，恢复时间是 10 秒而不是 2 秒。
+
+跨任务的下一次编辑不算恢复；缺少起点或缺终点时分别列入 `missing_start` / `missing_end` 并报告不可计算，**绝不用按钮点击、窗口切换或标题分类替代**。这是 Proposal 的明确要求。
+
+交付延迟（`analyze_events.py`）只统计 `completed -> delivered`；缺少 `delegation_completed` 的委托保留在 `missing_completion`，并从交付延迟中排除，不会拿提交时间冒充完成时间。
+
+### 样本格式
+
+分类样本沿用 B 模块格式，每行一个 JSON 对象：
+
+```json
+{"id": "holdout-001", "goal_title": "...", "goal_next_step": "...", "progress": "...", "activity": "...", "expected_label": "direct_progress"}
+```
+
+标签取 `direct_progress` / `necessary_preparation` / `optional_exploration` / `unclear`。开发样本（B 模块 40 条）与保留样本（E 模块 60 条）必须分开存放，提交前用 `isolate` 校验。测试见 [`tests/test_check_events.py`](../tests/test_check_events.py) 和 [`tests/test_experiment_evaluation.py`](../tests/test_experiment_evaluation.py)。
+
 [上手指南](../docs/GETTING_STARTED.md) · [开发与评估任务](../TODO.md)

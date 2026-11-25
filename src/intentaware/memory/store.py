@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from urllib.parse import urlsplit
 
 from intentaware.contracts import Condition, Detour, ExperimentEvent, Goal, Progress
 
@@ -57,6 +58,13 @@ class SQLiteStore:
         try:
             self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
+            # Additive migration: keep existing tasks, timestamps and associations.
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                columns = {row["name"] for row in self._db.execute("PRAGMA table_info(detours)")}
+                for name in ("url", "purpose"):
+                    if name not in columns:
+                        self._db.execute(f"ALTER TABLE detours ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
         except sqlite3.Error:
             self._db.close()
             raise
@@ -86,6 +94,8 @@ class SQLiteStore:
             self._transaction_depth -= 1
 
     def save_goal(self, goal: Goal) -> None:
+        if not isinstance(goal.title, str) or not goal.title.strip():
+            raise ValueError("任务目标不能为空。")
         with self.transaction():
             self._db.execute(
                 """INSERT INTO goals (id, title, next_step, created_at)
@@ -133,11 +143,40 @@ class SQLiteStore:
             )
 
     def add_detour(self, detour: Detour) -> None:
+        self._validate_detour(detour)
         with self.transaction():
             self._db.execute(
-                "INSERT INTO detours (id, goal_id, text, created_at) VALUES (?, ?, ?, ?)",
-                (detour.id, detour.goal_id, detour.text, detour.created_at),
+                "INSERT INTO detours (id, goal_id, text, created_at, url, purpose) VALUES (?, ?, ?, ?, ?, ?)",
+                (detour.id, detour.goal_id, detour.text, detour.created_at, detour.url, detour.purpose),
             )
+
+    @staticmethod
+    def _validate_detour(detour: Detour) -> None:
+        if not isinstance(detour.text, str) or not detour.text.strip():
+            raise ValueError("支线笔记不能为空。")
+        if not isinstance(detour.url, str) or not isinstance(detour.purpose, str):
+            raise ValueError("链接和用途必须是文字。")
+        if detour.url:
+            try:
+                parsed = urlsplit(detour.url)
+                valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
+                valid = valid and not any(character.isspace() for character in detour.url)
+                parsed.port  # Validate malformed port numbers as well.
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ValueError("请输入完整的 http:// 或 https:// 链接，或将链接留空。")
+
+    def update_detour(self, detour: Detour) -> None:
+        """Update content only; never reassign a detour to another goal."""
+        self._validate_detour(detour)
+        with self.transaction():
+            cursor = self._db.execute(
+                "UPDATE detours SET text = ?, url = ?, purpose = ? WHERE id = ? AND goal_id = ?",
+                (detour.text, detour.url, detour.purpose, detour.id, detour.goal_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("找不到当前任务的这条支线记录。")
 
     def list_detours(self, goal_id: str) -> list[Detour]:
         rows = self._db.execute("SELECT * FROM detours WHERE goal_id = ? ORDER BY rowid", (goal_id,))

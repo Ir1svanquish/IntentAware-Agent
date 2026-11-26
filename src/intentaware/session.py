@@ -47,6 +47,8 @@ class DesktopSession:
         self.jobs: list[DelegationJob] = []
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="intentaware")
         self._pending: dict[str, tuple[Future, Event]] = {}
+        # Serial requests keep classifier metrics tied to the current result.
+        self._analysis_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="classification")
         self._analysis_future: Future | None = None
         self._analysis_activity: str | None = None
         self.classification: Classification | None = None
@@ -126,8 +128,6 @@ class DesktopSession:
 
     def _write_goal(self, title: str, next_step: str, progress_note: str, *, origin: str, new: bool) -> Goal:
         self._require_open()
-        if self.analysis_pending:
-            raise ValueError("正在分析当前活动，请等待分析完成后再更新目标。")
         if not title.strip():
             raise ValueError("目标不能为空，请写下这次要完成的任务。")
         if origin not in ("manual", "automatic"):
@@ -146,9 +146,7 @@ class DesktopSession:
             self._event("goal_saved", goal_id=goal.id, details={"origin": origin, "new_task": new})
         self.goal, self.progress = goal, progress
         self.goal_inference_key = inference_key
-        self.classification = None
-        self.classification_activity = None
-        self.analysis_error = None
+        self.cancel_analysis()
         if new:
             self.jobs.clear()
         return goal
@@ -208,7 +206,7 @@ class DesktopSession:
         if self.analysis_pending:
             raise ValueError("已有活动正在分析，请稍候。")
         self._event("analysis_requested")
-        future = self._executor.submit(self.classifier.classify, context)
+        future = self._analysis_executor.submit(self.classifier.classify, context)
         self.classification = None
         self.classification_activity = None
         self.analysis_error = None
@@ -459,5 +457,6 @@ class DesktopSession:
                 cancel.set()
                 future.cancel()
             self._pending.clear()
+            self._analysis_executor.shutdown(wait=False, cancel_futures=True)
             self._executor.shutdown(wait=False, cancel_futures=True)
             self.store.close()

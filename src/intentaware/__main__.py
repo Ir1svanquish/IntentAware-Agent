@@ -48,8 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         QMessageBox.information(
             None,
             "LLM 分类已启用",
-            "活动文本（主任务、下一步、已确认进度、当前活动）将发送到：\n"
-            f"{llm_config.base_url}\n\n模型：{llm_config.model}",
+            "主任务、下一步、已确认进度、活动来源和当前活动将发送到：\n"
+            f"{llm_config.base_url}\n\n当前活动可能包含前台应用名和窗口标题。\n模型：{llm_config.model}",
         )
 
     data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())

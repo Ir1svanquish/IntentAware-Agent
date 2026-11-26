@@ -47,13 +47,15 @@ class OpenAICompatibleClient:
         self.model = config.model
         self._transport = transport or _post_json
         self._sleep = sleep
-        # 最近一次成功请求的用量与耗时；实验报告需要 latency 与 token usage。
+        # 当前调用收到的用量与耗时，供实验报告使用。
         self.last_usage: dict[str, int] = {}
         self.last_latency_ms: float | None = None
 
     def complete_json(
         self, *, system: str, user: str, schema: Mapping[str, object]
     ) -> dict:
+        self.last_usage = {}
+        self.last_latency_ms = None
         content = self._request(system, user)
         data = _decode_content(content)
         validate_json(data, schema, context="模型返回")

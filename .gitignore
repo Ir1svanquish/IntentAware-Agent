@@ -233,3 +233,7 @@ experiments/private_data/
 *.sqlite3-shm
 events-*.jsonl
 intentaware-events*.jsonl
+
+# uv 本地缓存与解释器（本机开发用）
+.uv-cache/
+.uv-python/

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobStatus
 from intentaware.memory.resume import recovery_key, recovery_text
+from intentaware.nlp import LlmActivityClassifier
 
 from .icons import icon
 from .theme import apply_theme
@@ -169,6 +170,7 @@ class MainWindow(QMainWindow):
         self.session = session
         self.monitor = monitor
         self.demo = demo
+        self._uses_llm = isinstance(session.classifier, LlmActivityClassifier)
         self._analyzed_activity: str | None = None
         self._manual_observation_key: tuple[str, str] | None = None
         self._editing_goal = False
@@ -185,7 +187,7 @@ class MainWindow(QMainWindow):
         self._load_goal()
         self._refresh()
         self._show_page(WORKBENCH)
-        self._status("自动识别只使用本机的应用名称与窗口标题。" if monitor else "手动模式 · 可修正主任务，或展开手动补充活动。")
+        self._status(self._startup_status())
         self._timer = QTimer(self, interval=100)
         self._timer.timeout.connect(self._poll)
         self._timer.start()
@@ -301,13 +303,13 @@ class MainWindow(QMainWindow):
         mode_row.setSpacing(8)
         shield = _label()
         shield.setPixmap(icon("shield", "#AFC4D2", 18).pixmap(18, 18))
-        mode = _label("演示模式" if self.demo else "本地工作空间")
+        mode = _label("演示模式" if self.demo else ("LLM 分类模式" if self._uses_llm else "本地工作空间"))
         mode.setObjectName("sidebarMode")
         mode_row.addWidget(shield)
         mode_row.addWidget(mode)
         mode_row.addStretch()
         layout.addLayout(mode_row)
-        note = _label("    窗口标题在本机处理")
+        note = _label("    活动文本发送到模型端点" if self._uses_llm else "    窗口标题在本机处理")
         note.setObjectName("sidebarFootnote")
         layout.addWidget(note)
         return sidebar
@@ -613,7 +615,12 @@ class MainWindow(QMainWindow):
     def _build_settings(self) -> QWidget:
         page, layout = self._page()
         panel, monitor = _card("自动任务识别")
-        monitor.addWidget(_label("根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。", "body", wrap=True))
+        if self._uses_llm:
+            hint = ("活动分类会将主任务、下一步、已确认进度、活动来源和当前活动发送到已配置的模型端点。"
+                    "当前活动可能包含前台应用名和窗口标题。主任务可随时修正。")
+        else:
+            hint = "根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。"
+        monitor.addWidget(_label(hint, "body", wrap=True))
         self.settings_monitor_status = _label(role="muted", wrap=True)
         monitor.addWidget(self.settings_monitor_status)
         line = QFrame()
@@ -638,7 +645,7 @@ class MainWindow(QMainWindow):
         self.save_exclusions_button = _button("保存排除列表", self._save_exclusions, primary=True)
         exclusions.addWidget(self.save_exclusions_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(panel)
-        privacy = _label("识别只使用应用名称和窗口标题，不读取截图、正文或按键。\n需要安静工作时，可以随时暂停识别。", "muted", wrap=True)
+        privacy = _label("前台观察只读取应用名称和窗口标题。\n可随时暂停自动识别或在此排除应用。", "muted", wrap=True)
         layout.addWidget(privacy)
         layout.addStretch()
         return page
@@ -656,6 +663,13 @@ class MainWindow(QMainWindow):
         self.goal_input.setText(goal.title if goal else "")
         self.next_step_input.setText(goal.next_step if goal else "")
         self.progress_input.setText(self.session.progress.note if self.session.progress else "")
+
+    def _startup_status(self) -> str:
+        if self._uses_llm:
+            return "LLM 分类会把活动文本（可能含窗口标题）和主任务信息发送到已配置的模型端点。"
+        if self.monitor:
+            return "自动识别只使用本机的应用名称与窗口标题。"
+        return "手动模式 · 可修正主任务，或展开手动补充活动。"
 
     def _status(self, text: str = "", *, error: bool = False) -> None:
         self.status_label.setText(text)
@@ -952,7 +966,6 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(has_goal and not pending)
         self.activity_input.setEnabled(not pending)
         self.sample_button.setEnabled(not pending)
-        self.save_goal_button.setEnabled(not pending)
         active_jobs = any(job.status in (JobStatus.RUNNING, JobStatus.READY) for job in self.session.jobs)
         self.adopt_suggestion_button.setEnabled(not pending and not active_jobs)
         self.adopt_suggestion_button.setToolTip("先完成或取消待交付的委托，再切换主任务。" if active_jobs else "")
@@ -1044,7 +1057,7 @@ class MainWindow(QMainWindow):
         if not self.monitor:
             activity = self.activity_input.toPlainText().strip()
             _preview(self.activity_label, activity or "补充一次当前活动")
-            self.activity_source.setText("手动输入 · 本地演示分类")
+            self.activity_source.setText("手动输入 · LLM 分类" if self._uses_llm else "手动输入 · 本地分类")
             self.window_title_label.hide()
             _badge(self.activity_state, "手动")
             self.confidence_label.hide()
@@ -1055,7 +1068,9 @@ class MainWindow(QMainWindow):
             activity_titles = {"开发": "代码编辑", "写作": "文档编辑", "阅读": "文献阅读", "浏览": "网页浏览"}
             category = getattr(suggestion, "category", "未知") if suggestion else "未知"
             self.activity_label.setText(activity_titles.get(category, "正在使用工作窗口"))
-            source = "示例窗口标题" if snapshot.source == "demo" else "本地窗口标题"
+            source = "示例窗口标题" if snapshot.source == "demo" else "前台窗口标题"
+            if self._uses_llm:
+                source = f"{source} · 活动文本发送到模型端点"
             _preview(self.activity_source, f"{snapshot.app_name} · {source}")
             _preview(self.window_title_label, snapshot.window_title, 160)
             self.window_title_label.show()
@@ -1075,7 +1090,10 @@ class MainWindow(QMainWindow):
                 "excluded": "这个应用不参与识别", "error": "还没有取得活动线索",
             }
             self.activity_label.setText(titles.get(self.monitor.state, "等待你的工作窗口"))
-            self.activity_source.setText("应用名称与窗口标题 · 仅在本机处理")
+            self.activity_source.setText(
+                "应用名称与窗口标题 · 可随活动文本发送到模型端点" if self._uses_llm
+                else "应用名称与窗口标题 · 仅在本机处理"
+            )
             self.window_title_label.hide()
             self.confidence_label.hide()
             _badge(self.activity_state, "已暂停" if self.monitor.state == "paused" else "等待")

@@ -86,7 +86,27 @@ session = DesktopSession(
 
 自动观察由 `TaskMonitor` 调用观察器的 `capture() -> CaptureResult`，稳定后使用 `LocalTaskRecognizer.infer(snapshot)` 生成候选任务，再协调后台活动分类。替换观察器时保留空闲、排除与不可用状态，给外部命令设置超时；暂停、排除或关闭后不得应用之前发出的延迟结果。
 
-当前推断是本地规则，委托是离线示例。接入真实模型或检索前，同步更新界面模式提示与事件模式标记，并为评估记录模型、提示词和观察模式。不要把标题分类结果写成用户已完成的进度。
+当前委托执行器是离线示例；活动分类默认使用本地规则，也可以显式切换到 LLM。接入真实检索前，同步更新界面模式提示与事件模式标记，并为评估记录模型、Prompt 版本和观察模式。不要把标题分类结果写成用户已完成的进度。
+
+### LLM 分类（可选）
+
+`--classifier llm` 使用 [`nlp/llm.py`](../src/intentaware/nlp/llm.py) 的 OpenAI 兼容客户端；不传该参数时仍是本地规则，行为与之前一致。启动时会弹窗说明将要发送的字段与端点。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `INTENTAWARE_LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI 兼容端点 |
+| `INTENTAWARE_LLM_API_KEY` | 空 | 默认服务商必填；本地端点可省略 |
+| `INTENTAWARE_LLM_MODEL` | `deepseek-chat` | 实验时固定并记录 |
+| `INTENTAWARE_LLM_TIMEOUT` | `20` | 单次请求秒数 |
+| `INTENTAWARE_LLM_RETRIES` | `1` | 仅对 429、5xx 与超时重试 |
+
+```bash
+INTENTAWARE_LLM_API_KEY=... python -m intentaware --classifier llm
+python -m intentaware.nlp.clarify "下周三前交论文初稿"
+python -m intentaware.nlp.evaluate tests/fixtures/nlp_samples.jsonl
+```
+
+启用 LLM 分类后，主任务、下一步、已确认进度、活动来源和当前活动会发送到配置的模型端点。当前活动可能包含前台应用名称、窗口标题或手动补充的内容。事件历史和数据库不会随请求发送。运行日志记录模型与 Prompt 版本，分类事件也记录可用的 token 用量与耗时。细节与错误分析见 [`nlp/README.md`](../src/intentaware/nlp/README.md)。
 
 扩展存储时，用 `with store.transaction():` 将一次操作的数据修改与事件记录共同提交。保存失败应整体回滚，界面状态只在提交成功后更新。
 
@@ -102,7 +122,9 @@ SQLite 文件名为 `intentaware.sqlite3`，默认目录如下。
 
 用 `--data-dir ./demo-data` 指定独立目录，也可设置 `INTENTAWARE_DATA_DIR`。命令行参数优先；应用不会自动加载 `.env`。同一目录中的任务、已确认进度、支线、暂停状态与排除应用会保留。
 
-自动观察不采集截图、键盘输入或剪贴板，不读取正文，也不上传窗口数据。持续观察到的原始标题不追加到事件导出；由标题生成或用户修正的任务会保存，可能含文件或页面名称。用户主动保存的支线与进度也属于本地记录，分享前检查内容。
+自动观察不采集截图、键盘输入或剪贴板，也不读取正文。默认本地分类将观察数据留在设备上。启用 LLM 分类时，活动文本及其中可能包含的窗口标题会发送到配置的模型端点。
+
+持续观察到的原始标题不会追加到事件导出。由标题生成或用户修正的任务会保存在本地，可能含文件或页面名称。用户主动保存的支线与进度也属于本地记录，分享前检查内容。
 
 安装开发依赖后，从仓库根目录运行：
 

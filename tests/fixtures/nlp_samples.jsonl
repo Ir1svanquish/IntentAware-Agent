@@ -1,0 +1,40 @@
+{"id": "dev-001", "goal_title": "完成论文方法章节", "goal_next_step": "写方法章节的提纲", "progress": "已读完两篇文献", "activity": "正在撰写方法章节正文", "expected_label": "direct_progress", "note": "活动正在产出正文"}
+{"id": "dev-002", "goal_title": "完成论文实验部分", "goal_next_step": "跑通主实验并保存结果", "progress": "环境已配置", "activity": "运行实验脚本并保存结果", "expected_label": "direct_progress", "note": "执行设定的下一步"}
+{"id": "dev-003", "goal_title": "提交课程报告", "goal_next_step": "修改结论段", "progress": "正文已完成", "activity": "修改报告结论段", "expected_label": "direct_progress", "note": "直接修改成果"}
+{"id": "dev-004", "goal_title": "提交论文终稿", "goal_next_step": "在系统里提交最终 PDF", "progress": "已通过查重", "activity": "在投稿系统提交最终 PDF", "expected_label": "direct_progress", "note": "完成交付动作"}
+{"id": "dev-005", "goal_title": "完成读书报告", "goal_next_step": "阅读第三章", "progress": "已写前两章笔记", "activity": "阅读第三章", "expected_label": "direct_progress", "note": "活动就是设定的下一步"}
+{"id": "dev-006", "goal_title": "实现登录接口", "goal_next_step": "写登录接口代码", "progress": "已完成接口设计", "activity": "在 VS Code 中实现登录接口", "expected_label": "direct_progress", "note": "编码产出"}
+{"id": "dev-007", "goal_title": "完成文献综述", "goal_next_step": "整理三篇文献并写提纲", "progress": "三篇文献已读完", "activity": "整理三篇文献并写提纲", "expected_label": "direct_progress", "note": "活动与下一步完全一致"}
+{"id": "dev-008", "goal_title": "准备毕业答辩", "goal_next_step": "制作第 3 页幻灯片", "progress": "答辩大纲已定", "activity": "制作答辩第 3 页幻灯片", "expected_label": "direct_progress", "note": "直接产出交付物"}
+{"id": "dev-009", "goal_title": "完成测试集标注", "goal_next_step": "标注 50 条测试样本", "progress": "已标注 20 条", "activity": "标注第 21 到 30 条测试样本", "expected_label": "direct_progress", "note": "推进可量化任务"}
+{"id": "dev-010", "goal_title": "完成论文摘要", "goal_next_step": "撰写摘要初稿", "progress": "结论已定稿", "activity": "撰写摘要初稿", "expected_label": "direct_progress", "note": "写作产出"}
+{"id": "dev-011", "goal_title": "完成论文方法章节", "goal_next_step": "整理三篇文献并写提纲", "progress": "已读完两篇", "activity": "前台窗口：Google Chrome｜Attention Is All You Need.pdf", "expected_label": "necessary_preparation", "note": "读文献服务于方法章节"}
+{"id": "dev-012", "goal_title": "提交期刊文章", "goal_next_step": "写研究问题", "progress": "", "activity": "阅读第三章", "expected_label": "necessary_preparation", "note": "同一活动在另一目标下只是准备"}
+{"id": "dev-013", "goal_title": "实现登录接口", "goal_next_step": "写登录接口代码", "progress": "", "activity": "查阅 FastAPI 官方文档", "expected_label": "necessary_preparation", "note": "查文档为编码做准备"}
+{"id": "dev-014", "goal_title": "准备毕业答辩", "goal_next_step": "制作第 3 页幻灯片", "progress": "", "activity": "浏览往届答辩视频找结构参考", "expected_label": "necessary_preparation", "note": "收集结构参考"}
+{"id": "dev-015", "goal_title": "完成论文", "goal_next_step": "修改结论段", "progress": "", "activity": "查找引用格式规范", "expected_label": "necessary_preparation", "note": "规范准备"}
+{"id": "dev-016", "goal_title": "复现基线实验", "goal_next_step": "配置训练环境", "progress": "", "activity": "安装 CUDA 与 PyTorch", "expected_label": "necessary_preparation", "note": "环境准备"}
+{"id": "dev-017", "goal_title": "撰写文献综述", "goal_next_step": "收集近三年相关文献", "progress": "", "activity": "在 arXiv 检索关键词", "expected_label": "necessary_preparation", "note": "检索资料"}
+{"id": "dev-018", "goal_title": "完成数据分析", "goal_next_step": "写统计脚本", "progress": "", "activity": "阅读 pandas groupby 教程", "expected_label": "necessary_preparation", "note": "学习工具"}
+{"id": "dev-019", "goal_title": "完成课程项目", "goal_next_step": "设计数据库表", "progress": "", "activity": "查看 SQLite 官方文档", "expected_label": "necessary_preparation", "note": "查文档为设计做准备"}
+{"id": "dev-020", "goal_title": "写系统论文", "goal_next_step": "画系统架构图", "progress": "", "activity": "收集同类系统的架构图参考", "expected_label": "necessary_preparation", "note": "素材准备"}
+{"id": "dev-021", "goal_title": "完成论文", "goal_next_step": "写方法章节提纲", "progress": "", "activity": "刷短视频找撰写论文的灵感", "expected_label": "optional_exploration", "note": "休闲但嘴上沾边，不能判直接进展"}
+{"id": "dev-022", "goal_title": "完成论文实验", "goal_next_step": "跑主实验", "progress": "", "activity": "逛 GitHub trending 看其他项目", "expected_label": "optional_exploration", "note": "与主任务无关的探索"}
+{"id": "dev-023", "goal_title": "复习期末考试", "goal_next_step": "做完第三章习题", "progress": "", "activity": "在购物网站比较显示器价格", "expected_label": "optional_exploration", "note": "购物"}
+{"id": "dev-024", "goal_title": "写完课程报告", "goal_next_step": "整理实验数据", "progress": "", "activity": "和朋友聊周末旅行", "expected_label": "optional_exploration", "note": "闲聊"}
+{"id": "dev-025", "goal_title": "提交期刊文章", "goal_next_step": "写研究问题", "progress": "", "activity": "刷微博热搜", "expected_label": "optional_exploration", "note": "无关信息流"}
+{"id": "dev-026", "goal_title": "实现登录接口", "goal_next_step": "写登录接口代码", "progress": "", "activity": "看游戏直播", "expected_label": "optional_exploration", "note": "娱乐"}
+{"id": "dev-027", "goal_title": "准备毕业答辩", "goal_next_step": "制作第 3 页幻灯片", "progress": "", "activity": "刷小红书看答辩模板", "expected_label": "optional_exploration", "note": "可能有用，但当前不是准备动作"}
+{"id": "dev-028", "goal_title": "复现基线实验", "goal_next_step": "配置训练环境", "progress": "", "activity": "在视频网站看显卡评测", "expected_label": "optional_exploration", "note": "硬件信息，非当前任务"}
+{"id": "dev-029", "goal_title": "撰写文献综述", "goal_next_step": "检索近三年文献", "progress": "", "activity": "浏览与课题无关的科技新闻", "expected_label": "optional_exploration", "note": "信息浏览，与课题无关"}
+{"id": "dev-030", "goal_title": "完成课程作业", "goal_next_step": "写第三题解答", "progress": "", "activity": "打游戏放松", "expected_label": "optional_exploration", "note": "休息"}
+{"id": "dev-031", "goal_title": "完成论文方法章节", "goal_next_step": "整理三篇文献并写提纲", "progress": "", "activity": "打开了一个窗口", "expected_label": "unclear", "note": "没有任何有效线索"}
+{"id": "dev-032", "goal_title": "完成论文", "goal_next_step": "写方法章节", "progress": "", "activity": "前台窗口：Code｜未命名-1", "expected_label": "unclear", "note": "通用标题，不能推断任务"}
+{"id": "dev-033", "goal_title": "提交课程报告", "goal_next_step": "修改结论段", "progress": "", "activity": "在浏览器里看东西", "expected_label": "unclear", "note": "描述过泛"}
+{"id": "dev-034", "goal_title": "实现登录接口", "goal_next_step": "写登录接口代码", "progress": "", "activity": "切换到了另一个应用", "expected_label": "unclear", "note": "没有活动内容"}
+{"id": "dev-035", "goal_title": "准备毕业答辩", "goal_next_step": "制作第 3 页幻灯片", "progress": "", "activity": "前台窗口：Finder｜Documents", "expected_label": "unclear", "note": "只有文件管理器"}
+{"id": "dev-036", "goal_title": "完成论文实验", "goal_next_step": "跑主实验", "progress": "", "activity": "处理一些事情", "expected_label": "unclear", "note": "无法判断"}
+{"id": "dev-037", "goal_title": "撰写文献综述", "goal_next_step": "检索近三年文献", "progress": "", "activity": "打开了设置页面", "expected_label": "unclear", "note": "系统页面"}
+{"id": "dev-038", "goal_title": "完成数据分析", "goal_next_step": "写统计脚本", "progress": "", "activity": "浏览网页", "expected_label": "unclear", "note": "信息不足"}
+{"id": "dev-039", "goal_title": "复习期末考试", "goal_next_step": "做完第三章习题", "progress": "", "activity": "在文档里写了一些内容", "expected_label": "unclear", "note": "未说明内容与目标的关系"}
+{"id": "dev-040", "goal_title": "完成课程项目", "goal_next_step": "设计数据库表", "progress": "", "activity": "前台窗口：Microsoft Edge｜新标签页", "expected_label": "unclear", "note": "空白页，无任务线索"}

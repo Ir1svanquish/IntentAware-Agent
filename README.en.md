@@ -55,7 +55,7 @@ Use the virtual-environment Python path shown above, or activate the environment
 - Pause, resume, and application exclusions, with settings stored locally. Low-information titles remain uncertain and require correction.
 - SQLite storage for the current goal, confirmed progress, and detours. Those records are available after restarting the app.
 - G/P/I/D feature gates, background delegation with immediate or deferred delivery, early viewing, cancellation, and JSONL export for the current run. Delegation jobs live for the current app session.
-- Task inference and classification use local title and keyword rules; delegation still returns offline demonstration results. No runtime network access or API keys are required. LLM integration, live retrieval, and research evaluation remain future work.
+- The default title and keyword rules run locally without network access or an API key. Use `--classifier llm` to enable [model-based classification](docs/GETTING_STARTED.md#llm-分类可选). Delegation returns offline demonstration results.
 
 ### Desktop preview
 
@@ -63,7 +63,7 @@ Use the virtual-environment Python path shown above, or activate the environment
 
 ## Overview
 
-**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. The current version uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. Planned LLM and public-source retrieval integrations will improve goal understanding, resumption, and delegation of non-urgent questions. The current delegator supports offline checks of background execution and delivery.
+**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. By default it uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. `--classifier llm` optionally connects an OpenAI-compatible model for goal clarification and four-way classification (API key required, off by default; tests and the default flow stay offline). Public-source retrieval and asynchronous delegation of non-urgent questions remain in development; the current delegator supports offline checks of background execution and delivery.
 
 ### Project proposal
 
@@ -164,7 +164,9 @@ Group members can comment with their GitHub handle and preferred module in [Join
 
 ## Data and privacy
 
-Automatic recognition uses only the foreground application name and window title. It does not capture screenshots, keystrokes, or clipboard data; it does not read page, file, or document contents or upload observations to the cloud. It skips its own window and private windows or password managers covered by its rules. Add excluded applications in **设置** (Settings), or pause recognition at any time.
+Automatic observation reads the foreground application name and window title. With the default local classifier, observations stay on the device. The app skips its own window and private windows or password managers covered by its rules. Add excluded applications in **设置** (Settings), or pause recognition at any time.
+
+When `--classifier llm` is enabled, the app sends the current goal, next step, confirmed progress, activity source, and current activity to the configured model endpoint. The activity may contain the foreground application name and window title. The app does not capture screenshots, keystrokes, or clipboard data, or read page, file, or document contents.
 
 Tasks, confirmed progress, detours, and preferences are stored in local SQLite. Automatically seeded and user-edited task titles are saved and may include file or page names. Raw ongoing window titles are not appended to event exports. Review exported records for sensitive information that you explicitly saved. See the [setup guide (Chinese)](docs/GETTING_STARTED.md#本地数据与测试) for data locations and overrides.
 

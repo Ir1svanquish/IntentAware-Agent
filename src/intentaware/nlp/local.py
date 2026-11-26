@@ -15,7 +15,8 @@ from intentaware.contracts import ActivityContext, ActivityLabel, Classification
 from intentaware.nlp.demo import DemoClassifier
 
 
-_OBSERVATION_PREFIX = "前台窗口："
+# 对外公开：其他分类实现需要识别“窗口观察”与“用户描述”两种来源。
+OBSERVATION_PREFIX = "前台窗口："
 _DELIMITER = "｜"
 _SEPARATOR = re.compile(r"\s+[-—–|]\s+")
 _SUFFIX = re.compile(
@@ -88,7 +89,7 @@ class LocalTaskRecognizer:
     def infer(self, snapshot: ActivitySnapshot) -> TaskSuggestion:
         if is_private_snapshot(snapshot):
             return TaskSuggestion("", "", "", "low", "隐私窗口已排除。", snapshot.key)
-        activity = f"{_OBSERVATION_PREFIX}{snapshot.app_name[:MAX_APP_CHARS]}{_DELIMITER}{snapshot.window_title[:MAX_TITLE_CHARS]}"
+        activity = f"{OBSERVATION_PREFIX}{snapshot.app_name[:MAX_APP_CHARS]}{_DELIMITER}{snapshot.window_title[:MAX_TITLE_CHARS]}"
         details = _details(snapshot)
         subject = details.subject[:160]
         if details.category == "浏览" and _LEISURE.search(snapshot.window_title):
@@ -136,12 +137,12 @@ def _related(goal_text: str, details: _WindowDetails) -> bool:
 class LocalActivityClassifier:
     def classify(self, context: ActivityContext) -> Classification:
         activity = context.activity.strip()
-        if not activity.startswith(_OBSERVATION_PREFIX):
+        if not activity.startswith(OBSERVATION_PREFIX):
             # Keep established explicit, user-entered activity semantics. Those
             # assertions are stronger evidence than merely opening an editor.
             result = DemoClassifier().classify(context)
             return Classification(result.label, result.reason.replace("规则演示：", "本地规则：", 1), result.suggested_next_step)
-        fields = activity[len(_OBSERVATION_PREFIX):].split(_DELIMITER, 1)
+        fields = activity[len(OBSERVATION_PREFIX):].split(_DELIMITER, 1)
         snapshot = ActivitySnapshot(fields[0], fields[1] if len(fields) > 1 else "")
         details = _details(snapshot)
         next_step = context.goal.next_step.strip()

@@ -175,8 +175,6 @@ def test_classification_runs_in_background_and_preserves_input_context(tmp_path)
         assert provider.started.wait(1)
         assert session.analysis_pending
         assert session.classification is None
-        with pytest.raises(ValueError):
-            session.set_goal("另一个目标", "新步骤")
         provider.release.set()
         deadline = time.monotonic() + 3
         while session.analysis_pending and time.monotonic() < deadline:
@@ -187,6 +185,30 @@ def test_classification_runs_in_background_and_preserves_input_context(tmp_path)
         assert session.classification.suggested_next_step == "整理文献"
         assert session.analysis_error is None
         assert any(event.name == "activity_classified" for event in session.events)
+    finally:
+        provider.release.set()
+        session.close()
+
+
+def test_saving_goal_discards_a_classification_already_running(tmp_path):
+    provider = BlockingClassifier()
+    session = make_session(tmp_path, classifier=provider)
+    try:
+        session.set_goal("完成论文", "整理文献")
+        session.start_analysis("阅读相关论文")
+        assert provider.started.wait(1)
+        old_analysis = session._analysis_future
+
+        session.set_goal("完成报告", "核对数据", "完成图表")
+        assert not session.analysis_pending
+        assert session.store.load_goal().title == "完成报告"
+        assert session.progress.note == "完成图表"
+
+        provider.release.set()
+        old_analysis.result(timeout=2)
+        session.poll()
+        assert session.classification is None
+        assert all(event.name != "activity_classified" for event in session.events)
     finally:
         provider.release.set()
         session.close()

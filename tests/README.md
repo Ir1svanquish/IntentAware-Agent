@@ -17,6 +17,11 @@ python -m pytest
 | `test_monitor.py` | 稳定采样、自动建立任务、人工修正、任务切换、暂停、排除与重启设置 |
 | `test_automatic_ui.py` | 自动显示、修正草稿保留、任务建议、暂停、排除与关闭 |
 | `test_classifier.py` | 原有演示分类器的四种类别、规则优先级与上下文 |
+| `test_llm_client.py` | OpenAI 兼容请求、重试与超时、错误分类、密钥不泄漏 |
+| `test_nlp_classifier.py` | LLM 四分类映射、Prompt 内容、非法字段、回退 |
+| `test_goal_clarifier.py` | 一句话目标澄清、低置信度、CLI 与会话事件留痕 |
+| `test_prompt_contract.py` | Prompt 占位符、示例 JSON 与版本哈希 |
+| `test_nlp_samples.py` | 40 条开发样本、四类平衡与批量评估 |
 | `test_storage.py` | 保存、更新、删除、重启与事件导出 |
 | `test_session.py` | 异步分析与委托、G/P/I/D 限制、条件切换、交付与异常 |
 | `test_ui.py` | Qt 操作、后台响应、结果展示与窗口布局 |

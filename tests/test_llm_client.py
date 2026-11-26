@@ -229,7 +229,7 @@ def test_usage_and_latency_are_exposed_for_reporting():
             },
         }
     ).encode("utf-8")
-    client, _ = make_client(Recorder(body))
+    client, _ = make_client(Recorder(body, urlerror.URLError("connection lost")), max_retries=0)
 
     assert client.last_usage == {}
     assert client.last_latency_ms is None
@@ -243,6 +243,12 @@ def test_usage_and_latency_are_exposed_for_reporting():
     }
     assert client.last_latency_ms is not None
     assert client.last_latency_ms >= 0
+
+    with pytest.raises(NlpTransportError):
+        client.complete_json(system="s", user="u", schema=SCHEMA)
+
+    assert client.last_usage == {}
+    assert client.last_latency_ms is None
 
 
 def test_missing_usage_is_reported_as_empty_not_an_error():

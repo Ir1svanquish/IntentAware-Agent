@@ -21,7 +21,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - [x] [B/F] Seed the first task from a stable, informative window title; update activity and classify it with local rules
 - [x] [A/B/F] Support human correction and one-click adoption of task suggestions; preserve the main task through temporary app switches
 - [x] [C] Store detours and confirmed progress locally, with basic resumption suggestions
-- [ ] [B] Improve and evaluate goal clarification, next-action extraction, four-way classification, and reasons using NLP/LLMs
+- [x] [B] Improve goal clarification, next-action extraction, four-way classification, and reasons using NLP/LLMs, and evaluate classification on 40 development examples
 - [ ] [C] Evaluate and improve resumption strategies based on confirmed progress
 - [ ] [A+B+C] Manually verify observation → correction → classification → detour → resumption on supported platforms
 - [x] [E] Prepare 60 classification candidates and 40 delegation candidates, and check the classification candidates against the 40 development examples for exact overlap

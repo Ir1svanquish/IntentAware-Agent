@@ -58,8 +58,14 @@ class DesktopSession:
         self._event("session_started", details=self._provider_details())
 
     def _provider_details(self) -> dict:
-        details = {"delegator": type(self.delegator).__name__}
+        details = self._delegator_details()
         details.update(self._classifier_details())
+        return details
+
+    def _delegator_details(self) -> dict:
+        """委托器可暴露 metadata（模型、Prompt 版本、检索器），写进事件供实验复现。"""
+        details = {"delegator": type(self.delegator).__name__}
+        details.update(getattr(self.delegator, "metadata", None) or {})
         return details
 
     def _classifier_details(self) -> dict:
@@ -371,10 +377,18 @@ class DesktopSession:
                 continue
             completed_at = utc_now()
             immediate = job.condition == Condition.I
+            completed_details = {"sources_count": len(result.sources)}
+            completed_details.update(self._delegator_details())
+            peek_metrics = getattr(self.delegator, "peek_job_metrics", None)
+            if callable(peek_metrics):
+                completed_details.update(peek_metrics(job.question) or {})
             with self.store.transaction():
-                self._event("delegation_completed", job)
+                self._event("delegation_completed", job, completed_details)
                 if immediate:
                     self._event("delegation_delivered", job, {"method": "immediate"})
+            pop_metrics = getattr(self.delegator, "pop_job_metrics", None)
+            if callable(pop_metrics):
+                pop_metrics(job.question)
             job.result = result
             job.status = JobStatus.DELIVERED if immediate else JobStatus.READY
             job.completed_at = completed_at
@@ -393,15 +407,18 @@ class DesktopSession:
         job.status = JobStatus.DELIVERED
         job.delivered_at = utc_now()
 
-    def checkpoint(self) -> int:
+    def checkpoint(self, label: str = "") -> int:
         goal = self._require_goal()
         if not self.delegation_enabled:
             raise ValueError("当前实验条件未启用委托检查点。")
         self.poll()
         checkpoint = Checkpoint(goal_id=goal.id)
         ready = [job for job in self.jobs if job.status == JobStatus.READY]
+        details: dict = {"checkpoint_id": checkpoint.id}
+        if label.strip():
+            details["has_label"] = True
         with self.store.transaction():
-            self._event("checkpoint_reached", details={"checkpoint_id": checkpoint.id})
+            self._event("checkpoint_reached", details=details)
             for job in ready:
                 self._event("delegation_delivered", job, {"method": "checkpoint"})
         for job in ready:

@@ -16,8 +16,11 @@ from PySide6.QtWidgets import (
 )
 
 from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobStatus
+from intentaware.delegation import (
+    DelegationDraft, DelegationError, LiveDelegator, LocalRequestFormulator,
+)
 from intentaware.memory.resume import recovery_key, recovery_text
-from intentaware.nlp import LlmActivityClassifier
+from intentaware.nlp import LlmActivityClassifier, NlpError
 
 from .icons import icon
 from .theme import apply_theme
@@ -66,7 +69,7 @@ EVENT_NAMES = {
     "detour_updated": "编辑支线", "recovery_ignored": "忽略恢复提示",
     "recovery_paused": "暂停恢复提示", "recovery_resumed": "开启恢复提示",
 }
-UI_ERRORS = (ValueError, RuntimeError, SQLiteError, OSError)
+UI_ERRORS = (ValueError, RuntimeError, SQLiteError, OSError, DelegationError, NlpError)
 ROW_ID = Qt.ItemDataRole.UserRole
 WORKBENCH, DETOURS, DELEGATION, EXPERIMENTS, SETTINGS = range(5)
 PAGES = (
@@ -165,18 +168,22 @@ def _sync_rows(widget: QListWidget, rows: list[tuple[str, str]], select: str | N
 
 class MainWindow(QMainWindow):
     def __init__(self, session: "DesktopSession", monitor: "TaskMonitor | None" = None,
-                 demo: bool = False) -> None:
+                 demo: bool = False, formulator=None) -> None:
         super().__init__()
         self.session = session
         self.monitor = monitor
         self.demo = demo
+        self.formulator = formulator if formulator is not None else LocalRequestFormulator()
         self._uses_llm = isinstance(session.classifier, LlmActivityClassifier)
+        self._uses_live_delegator = isinstance(session.delegator, LiveDelegator)
         self._analyzed_activity: str | None = None
         self._manual_observation_key: tuple[str, str] | None = None
         self._editing_goal = False
         self._exclusions_dirty = False
         self._editing_detour_id: str | None = None
         self._detour_editor_goal_id: str | None = None
+        self._draft: DelegationDraft | None = None
+        self._draft_goal_id: str | None = None
         self._resume_requested_key: str | None = None
         self._closed = False
         self.setWindowTitle("IntentAware · 任务工作台")
@@ -541,18 +548,72 @@ class MainWindow(QMainWindow):
         heading = QHBoxLayout()
         heading.addWidget(_label("交给后台的问题", "heading"))
         heading.addStretch()
-        badge = _label("离线演示", "badge")
-        heading.addWidget(badge)
+        self.delegation_badge = _label(
+            "公开检索 · LLM" if self._uses_live_delegator else "离线演示",
+            "badge",
+        )
+        if self._uses_live_delegator:
+            self.delegation_badge.setProperty("tone", "accent")
+        heading.addWidget(self.delegation_badge)
         delegation.addLayout(heading)
-        delegation.addWidget(_label("当前使用离线示例回答，用于验证委托与交付流程。", "muted", wrap=True))
+        self.delegation_mode_hint = _label(
+            "后台最多检索两份公开来源并核验引用，可先整理确认再提交。"
+            if self._uses_live_delegator
+            else "当前使用离线示例回答，用于验证委托与交付流程。",
+            "muted",
+            wrap=True,
+        )
+        delegation.addWidget(self.delegation_mode_hint)
         controls = QHBoxLayout()
         self.question_input = QLineEdit(placeholderText="例如：被打断后，怎样更快恢复当前任务？")
         self.question_input.setAccessibleName("委托问题")
         self.question_input.returnPressed.connect(self._submit)
         controls.addWidget(self.question_input, 1)
+        self.formulate_button = _button("整理请求", self._formulate)
+        controls.addWidget(self.formulate_button)
         self.submit_button = _button("提交委托", self._submit, primary=True)
         controls.addWidget(self.submit_button)
         delegation.addLayout(controls)
+
+        self.draft_editor = QFrame()
+        self.draft_editor.setObjectName("editorBox")
+        draft_layout = QVBoxLayout(self.draft_editor)
+        draft_layout.setContentsMargins(16, 14, 16, 14)
+        draft_layout.setSpacing(10)
+        draft_layout.addWidget(_label("可编辑委托请求（确认后提交给后台）", "heading"))
+        self.draft_question_input = QLineEdit(placeholderText="整理后的明确问题")
+        _field(draft_layout, "明确问题", self.draft_question_input)
+        self.draft_scope_input = QLineEdit(placeholderText="例如：只核对文件兼容性与免费版限制")
+        _field(draft_layout, "处理范围", self.draft_scope_input)
+        self.draft_output_input = QLineEdit(placeholderText="例如：简短结论、来源链接及未解决点")
+        _field(draft_layout, "期望输出", self.draft_output_input)
+
+        self.clarification_box = QFrame()
+        clarify_layout = QVBoxLayout(self.clarification_box)
+        clarify_layout.setContentsMargins(0, 4, 0, 4)
+        clarify_layout.setSpacing(6)
+        self.clarification_label = _label("", "notice", wrap=True)
+        clarify_layout.addWidget(self.clarification_label)
+        clarify_row = QHBoxLayout()
+        self.clarification_input = QLineEdit(placeholderText="补充澄清说明（最多一次，也可直接确认提交）")
+        self.clarification_input.setAccessibleName("澄清说明")
+        clarify_row.addWidget(self.clarification_input, 1)
+        self.apply_clarification_button = _button("补充并重新整理", self._apply_clarification)
+        clarify_row.addWidget(self.apply_clarification_button)
+        clarify_layout.addLayout(clarify_row)
+        self.clarification_box.hide()
+        draft_layout.addWidget(self.clarification_box)
+
+        draft_actions = QHBoxLayout()
+        self.confirm_draft_button = _button("确认并提交委托", self._confirm_draft, primary=True)
+        self.cancel_draft_button = _button("取消整理", self._cancel_draft, quiet=True)
+        draft_actions.addWidget(self.confirm_draft_button)
+        draft_actions.addWidget(self.cancel_draft_button)
+        draft_actions.addStretch()
+        draft_layout.addLayout(draft_actions)
+        self.draft_editor.hide()
+        delegation.addWidget(self.draft_editor)
+
         self.job_list = QListWidget()
         self.job_list.setAccessibleName("委托列表")
         self.job_list.setFixedHeight(112)
@@ -567,13 +628,15 @@ class MainWindow(QMainWindow):
         self.job_result.setMinimumHeight(136)
         result.addWidget(self.job_result)
         actions = QHBoxLayout()
+        self.checkpoint_label_input = QLineEdit(placeholderText="可选节点说明，例如：写完本段")
+        self.checkpoint_label_input.setAccessibleName("检查点说明")
+        actions.addWidget(self.checkpoint_label_input, 1)
         self.checkpoint_button = _button("到达检查点", self._checkpoint, primary=True)
         self.reveal_button = _button("提前查看", self._reveal)
         self.cancel_button = _button("取消委托", self._cancel)
         actions.addWidget(self.checkpoint_button)
         actions.addWidget(self.reveal_button)
         actions.addWidget(self.cancel_button)
-        actions.addStretch()
         result.addLayout(actions)
         layout.addWidget(panel)
         layout.addStretch()
@@ -813,6 +876,7 @@ class MainWindow(QMainWindow):
             condition = Condition(self.condition_combo.currentData())
             self.session.set_condition(condition)
             self._analyzed_activity = None
+            self._cancel_draft()
             self.resume_label.setText(RESUME_HINT)
             return f"已切换到 {condition.value} 条件，开始新的运行记录。"
         self._perform(change)
@@ -821,7 +885,10 @@ class MainWindow(QMainWindow):
     def _sync_condition(self) -> None:
         with QSignalBlocker(self.condition_combo):
             self.condition_combo.setCurrentIndex(self.condition_combo.findData(self.session.condition.value))
-        self.condition_description.setText(CONDITION_DESCRIPTIONS[self.session.condition])
+        description = CONDITION_DESCRIPTIONS[self.session.condition]
+        if self._uses_live_delegator and self.session.condition in (Condition.I, Condition.D):
+            description = description.replace("离线委托", "公开检索委托")
+        self.condition_description.setText(description)
 
     def _analyze(self) -> None:
         def analyze() -> str:
@@ -928,14 +995,106 @@ class MainWindow(QMainWindow):
         def submit() -> str:
             job = self.session.submit_delegation(self.question_input.text())
             self.question_input.clear()
+            self._cancel_draft()
             self._show_page(DELEGATION)
             self._refresh_jobs(job.id)
-            return "已提交离线演示委托，后台处理期间可以继续工作。"
+            return (
+                "已提交异步委托，后台正在检索公开来源，可继续处理主任务。"
+                if self._uses_live_delegator
+                else "已提交离线演示委托，后台处理期间可以继续工作。"
+            )
         self._perform(submit)
+
+    def _apply_draft(self, draft: DelegationDraft) -> None:
+        self._draft = draft
+        self._draft_goal_id = self.session.goal.id if self.session.goal else None
+        self.draft_question_input.setText(draft.question)
+        self.draft_scope_input.setText(draft.scope)
+        self.draft_output_input.setText(draft.expected_output)
+        if draft.needs_clarification:
+            self.clarification_label.setText(f"澄清建议：{draft.clarification_question}")
+            self.clarification_input.clear()
+            self.clarification_box.show()
+        else:
+            self.clarification_label.clear()
+            self.clarification_input.clear()
+            self.clarification_box.hide()
+        self.draft_editor.show()
+
+    def _formulate(self) -> None:
+        def formulate() -> str:
+            if not self.session.delegation_enabled or self.session.goal is None:
+                raise ValueError("请先设置主任务并在 I 或 D 条件下整理委托。")
+            draft = self.formulator.draft(
+                self.question_input.text(),
+                goal_title=self.session.goal.title,
+                clarification_round=0,
+            )
+            self._apply_draft(draft)
+            self._show_page(DELEGATION)
+            return (
+                "已整理委托请求，可补充一次澄清或编辑后确认提交。"
+                if draft.needs_clarification
+                else "已整理为可编辑委托请求，核对范围和期望输出后即可提交。"
+            )
+        self._perform(formulate)
+
+    def _apply_clarification(self) -> None:
+        def apply_clarify() -> str:
+            if self._draft is None or self.session.goal is None:
+                raise ValueError("当前没有正在整理的委托请求。")
+            answer = self.clarification_input.text().strip()
+            if not answer:
+                raise ValueError("请先填写澄清说明，或直接点击“确认并提交委托”。")
+            draft = self.formulator.draft(
+                self.draft_question_input.text() or self._draft.raw_question,
+                goal_title=self.session.goal.title,
+                clarification_answer=answer,
+                clarification_round=1,
+            )
+            self._apply_draft(draft)
+            return "已结合澄清补充更新委托请求，请核对后提交。"
+        self._perform(apply_clarify)
+
+    def _confirm_draft(self) -> None:
+        def confirm() -> str:
+            question = self.draft_question_input.text().strip()
+            if not question:
+                raise ValueError("明确问题不能为空。")
+            draft = DelegationDraft(
+                raw_question=self._draft.raw_question if self._draft else question,
+                question=question,
+                scope=self.draft_scope_input.text().strip(),
+                expected_output=self.draft_output_input.text().strip(),
+                clarification_round=self._draft.clarification_round if self._draft else 0,
+            )
+            job = self.session.submit_delegation(draft.format_question())
+            self.question_input.clear()
+            self._cancel_draft()
+            self._show_page(DELEGATION)
+            self._refresh_jobs(job.id)
+            return (
+                "已确认并提交异步委托，后台正在检索公开来源，可继续处理主任务。"
+                if self._uses_live_delegator
+                else "已确认并提交离线演示委托，后台处理期间可以继续工作。"
+            )
+        self._perform(confirm)
+
+    def _cancel_draft(self) -> None:
+        self._draft = None
+        self._draft_goal_id = None
+        if hasattr(self, "draft_editor"):
+            self.draft_question_input.clear()
+            self.draft_scope_input.clear()
+            self.draft_output_input.clear()
+            self.clarification_input.clear()
+            self.clarification_box.hide()
+            self.draft_editor.hide()
 
     def _checkpoint(self) -> None:
         def checkpoint() -> str:
-            count = self.session.checkpoint()
+            count = self.session.checkpoint(self.checkpoint_label_input.text())
+            self.checkpoint_label_input.clear()
             return f"已记录检查点，交付了 {count} 项答案。"
         self._perform(checkpoint)
 
@@ -977,8 +1136,14 @@ class MainWindow(QMainWindow):
         self.pause_recovery_button.setEnabled(memory and has_goal)
         self.pause_recovery_button.setText("开启恢复提示" if self.session.recovery_paused else "暂停恢复提示")
         self.question_input.setEnabled(delegation and has_goal)
+        self.formulate_button.setEnabled(delegation and has_goal)
         self.submit_button.setEnabled(delegation and has_goal)
+        self.checkpoint_label_input.setEnabled(delegation and has_goal)
         self.checkpoint_button.setEnabled(delegation and has_goal)
+        if self._draft_goal_id and (
+            not delegation or not has_goal or self.session.goal.id != self._draft_goal_id
+        ):
+            self._cancel_draft()
         self.detour_unavailable.setVisible(not memory)
         self.delegation_unavailable.setVisible(not delegation)
 

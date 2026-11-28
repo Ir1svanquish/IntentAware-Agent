@@ -31,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     from intentaware.contracts import Condition
     from intentaware.activity.demo import DemoObserver
     from intentaware.activity.monitor import TaskMonitor
+    from intentaware.delegation.demo import DemoDelegator
     from intentaware.memory.store import SQLiteStore
     from intentaware.session import DesktopSession
     from intentaware.ui.window import MainWindow
@@ -93,11 +94,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())
+    if args.demo and delegator is None:
+        delegator = DemoDelegator(reference_sample=True)
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         store = SQLiteStore(data_dir / "intentaware.sqlite3")
         session = DesktopSession(
-            store, classifier=classifier, delegator=delegator, condition=Condition(args.condition)
+            store, classifier=classifier, delegator=delegator,
+            condition=Condition(args.condition), demo_mode=args.demo,
         )
         monitor = TaskMonitor(
             session, DemoObserver() if args.demo else None,

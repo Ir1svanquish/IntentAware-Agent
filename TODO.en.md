@@ -2,7 +2,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 
 # Four-week Sprint Checklist
 
-> The desktop workbench observes foreground windows, infers tasks with local rules, and supports human correction. The evaluation tools and candidate datasets are available. Optional LLM classification and goal clarification are available, with local rules as the default. The LLM achieved a macro-F1 of 0.896 on 40 development examples. Validation on the held-out dataset, live retrieval, and the formal study remain pending. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
+> The desktop workbench combines foreground observation, task correction, detour recovery, delegation and event export. Follow the [offline MVP demo](docs/MVP_DEMO.md). The LLM scored 0.896 macro-F1 on 40 development examples. Live-service validation, held-out evaluation and the participant study remain pending. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
 
 ## Week 1 — Foundation and early study preparation
 
@@ -29,8 +29,8 @@ Language / 语言：[简体中文](TODO.md) | **English**
 
 ## Week 3 — Delegation and pilot
 
-- [ ] [D] Editable delegation draft with at most one clarification
-- [ ] [D] In-app background retrieval of at most two public sources; verify citations and unresolved points
+- [x] [D] Editable delegation draft with at most one clarification
+- [x] [D] Background retrieval with up to two public-source attempts, excerpt verification and unresolved questions
 - [x] [D+A] Offline delegation supports I immediate delivery, D manual checkpoints, early viewing, and cancellation
 - [ ] [D+A] Recheck delivery, timeouts, failures, and cancellation after connecting live retrieval
 - [x] [E/F] G/P/I/D condition switches, current-run events, and JSONL export
@@ -43,7 +43,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - [x] [E] Implement the keyword baseline, macro-F1, false-warning rate, delegation delay, and resumption-time analysis
 - [ ] [E] Report classification metrics, output quality, source support, latency, and token usage on formal study data
 - [ ] [Team] Subject to approvals/consent, conduct planned 12–18-person study; honestly report unfinished tasks
-- [ ] [A/F/E] Record the side-question prompt and the next meaningful edit of the same task, then verify both events in desktop JSONL exports
+- [x] [A/F/E] Log the displayed detour prompt and an observer-confirmed main-task edit, then verify both events in desktop JSONL exports
 - [ ] [Team] Demo, tests, analysis and final report
 
 ## Starter entry points
@@ -53,7 +53,7 @@ Language / 语言：[简体中文](TODO.md) | **English**
 - `src/intentaware/session.py`: connects the UI, NLP, persistence and background delegation.
 - `src/intentaware/activity/`: foreground observation, stable sampling, and the task monitor; `src/intentaware/nlp/local.py`: local task inference and activity classification.
 - Normal launch enables recognition; `--demo` uses simulated window observations; `--manual` starts with recognition paused.
-- Default inference uses application names, titles, and local rules. Use `--classifier llm` to select an OpenAI-compatible model for activity classification. Delegation returns offline examples while live retrieval is pending.
+- Default inference uses application names, titles, and local rules. Use `--classifier llm` for model classification and `--delegator live` for public-source delegation. Delegation defaults to offline examples.
 - Preserve G/P/I/D. Window observations do not confirm progress or meaningful edits, and raw ongoing window titles are excluded from event exports.
 
 ## Definition of done

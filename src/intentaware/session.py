@@ -32,11 +32,14 @@ class DesktopSession:
         classifier: Classifier | None = None,
         delegator: Delegator | None = None,
         condition: Condition = Condition.D,
+        *,
+        demo_mode: bool = False,
     ):
         self.store = store
         self.classifier = classifier if classifier is not None else LocalActivityClassifier()
         self.delegator = delegator if delegator is not None else DemoDelegator()
         self.condition = Condition(condition)
+        self.demo_mode = demo_mode
         self.run_id = new_id()
         self.goal = self.store.load_goal()
         self.progress = self.store.load_progress(self.goal.id) if self.goal else None
@@ -61,6 +64,8 @@ class DesktopSession:
     def _provider_details(self) -> dict:
         details = self._delegator_details()
         details.update(self._classifier_details())
+        if self.demo_mode:
+            details["observation_mode"] = "demo"
         return details
 
     def _delegator_details(self) -> dict:
@@ -123,6 +128,11 @@ class DesktopSession:
         """Record non-content metadata on the owning/main thread."""
         self._require_open()
         self._event(name, details=details)
+
+    def record_effective_edit(self) -> None:
+        """Record an observer-confirmed edit of the current main task."""
+        self._require_goal()
+        self._event("effective_edit", details={"source": "study_observation"})
 
     def set_goal(self, title: str, next_step: str, progress_note: str = "", *, origin: str = "manual") -> Goal:
         return self._write_goal(title, next_step, progress_note, origin=origin, new=False)

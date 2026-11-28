@@ -13,7 +13,7 @@ if errorlevel 1 (
     if errorlevel 1 goto setup_error
 )
 
-".venv\Scripts\python.exe" -m intentaware
+".venv\Scripts\python.exe" -m intentaware %*
 if errorlevel 1 pause
 exit /b
 

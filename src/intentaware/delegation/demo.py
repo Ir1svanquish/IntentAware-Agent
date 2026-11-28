@@ -4,26 +4,51 @@ from concurrent.futures import CancelledError
 from threading import Event
 
 from intentaware.contracts import DelegationResult
+from intentaware.nlp.llm import FakeLLMClient
+
+from .agent import LiveDelegator
+from .models import DelegationDraft, RetrievedDocument
+from .retriever import MockRetriever
+
+
+DEMO_QUESTION = "如何让 argparse 的可选参数变成必填？"
+_REFERENCE = RetrievedDocument(
+    source_id="S1",
+    title="Python documentation · argparse",
+    url="https://docs.python.org/3/library/argparse.html#required",
+    snippet="",
+    excerpt="To make an option required, True can be specified for the required= keyword argument to add_argument():",
+)
 
 
 class DemoDelegator:
-    def __init__(self, delay_seconds: float = 1.2):
+    def __init__(self, delay_seconds: float = 1.2, *, reference_sample: bool = False):
         if delay_seconds < 0:
             raise ValueError("演示延迟不能小于零。")
         self.delay_seconds = delay_seconds
+        self.reference_sample = reference_sample
 
     def run(self, question: str, cancel: Event) -> DelegationResult:
-        """Replace this method with bounded retrieval + generation for module D."""
+        """Run an explicitly offline demonstration."""
         if not question.strip():
             raise ValueError("请输入需要委托的问题。")
         if cancel.wait(self.delay_seconds):
             raise CancelledError("任务已取消。")
+        if self.reference_sample and DelegationDraft.parse_question(question).question == DEMO_QUESTION:
+            client = FakeLLMClient([{
+                "citations": [{"source_id": _REFERENCE.source_id, "quote": _REFERENCE.excerpt}],
+                "unresolved": [],
+            }])
+            result = LiveDelegator(client, MockRetriever([_REFERENCE])).run(question, cancel)
+            return DelegationResult(
+                answer=f"离线演示 · 预置公开文档摘录\n\n{result.answer}",
+                sources=result.sources,
+            )
         return DelegationResult(
             answer=(
                 "离线委托演示\n\n"
                 f"已接收问题：{question.strip()}\n\n"
                 "后台任务已经完成，主窗口在等待期间仍可继续操作。\n"
-                "接入真实检索与模型后，这里将显示问题的回答、来源和未解决点。\n\n"
-                "本次没有联网检索，也没有生成事实性答案。"
+                "本次展示后台处理和交付时机。联网委托可通过 --delegator live 启用。"
             ),
         )

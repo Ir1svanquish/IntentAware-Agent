@@ -14,6 +14,7 @@ from intentaware.activity.models import ActivitySnapshot, TaskSuggestion
 from intentaware.activity.observer import MAX_APP_CHARS, MAX_TITLE_CHARS, is_private_snapshot
 from intentaware.contracts import ActivityContext, ActivityLabel, Classification
 from intentaware.nlp.demo import DemoClassifier
+from intentaware.nlp.text import topic_tokens
 
 
 # 对外公开：其他分类实现需要识别“窗口观察”与“用户描述”两种来源。
@@ -36,15 +37,6 @@ _GENERIC = re.compile(
 )
 _FILE_EXTENSION = re.compile(r"\.[a-z][a-z0-9]{0,9}$", re.I)
 _DOC_EXTENSION = re.compile(r"\.(?:docx?|odt|rtf)$", re.I)
-_STOPWORDS = {
-    "the", "and", "for", "with", "from", "this", "that", "continue", "complete",
-    "develop", "development", "project", "other", "file", "main", "readme",
-    "test", "tests", "code", "visual", "studio", "document", "word", "window",
-    "windows", "write", "writing", "edit", "editing", "read", "reading", "review",
-    "research", "implement", "implementation", "tutorial", "documentation", "docs",
-    "report", "pdf", "doc", "docx", "html", "python", "javascript",
-}
-_CHINESE_STOP = re.compile("继续|完成|当前|目标|下一步|任务|项目|开发|编写|撰写|编辑|修改|处理|实现|阅读|查阅|查找|资料|文档|内容|窗口")
 _LEISURE = re.compile(r"刷短视频|搞笑|抖音|淘宝|京东|购物|打游戏|玩游戏|\b(?:netflix|youtube shorts|funny cats|shopping)\b", re.I)
 
 
@@ -133,18 +125,10 @@ class LocalTaskRecognizer:
         )
 
 
-def _tokens(value: str) -> set[str]:
-    value = value.casefold()
-    tokens = {word for word in re.findall(r"[a-z][a-z0-9_]{2,}", value) if word not in _STOPWORDS}
-    for run in re.findall(r"[\u3400-\u9fff]+", _CHINESE_STOP.sub(" ", value)):
-        tokens.update(run[index:index + 2] for index in range(len(run) - 1))
-    return tokens
-
-
 def _related(goal_text: str, details: _WindowDetails) -> bool:
     if details.filename and len(details.filename) >= 4 and details.filename.casefold() in goal_text.casefold():
         return True
-    return bool(_tokens(goal_text) & _tokens(f"{details.subject} {details.filename}"))
+    return bool(topic_tokens(goal_text) & topic_tokens(f"{details.subject} {details.filename}"))
 
 
 class LocalActivityClassifier:

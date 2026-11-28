@@ -37,8 +37,48 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from PySide6.QtCore import QLocale, QSettings
+    from PySide6.QtCore import QLocale, QLockFile, QSettings
     from PySide6.QtWidgets import QApplication, QMessageBox
+
+    app = QApplication([sys.argv[0]])
+    app.setApplicationName("IntentAware")
+    app.setOrganizationName("COMP7607-Group14")
+    language = args.lang or QSettings().value(LANGUAGE_SETTING, DEFAULT_LANGUAGE, type=str)
+    set_language(language)
+    QLocale.setDefault(QLocale("en_US" if language == "en" else "zh_CN"))
+
+    data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        database = (data_dir / "intentaware.sqlite3").resolve()
+        lock = QLockFile(str(database) + ".lock")
+        # The lock belongs to a live process, even if the app has been open for hours.
+        lock.setStaleLockTime(0)
+        if not lock.tryLock(0):
+            if lock.error() == QLockFile.LockError.LockFailedError:
+                QMessageBox.warning(
+                    None,
+                    tr("数据目录正在使用"),
+                    tr(
+                        "此数据目录已在另一个 IntentAware 窗口中打开。请切回原窗口，"
+                        "或用 --data-dir 指定另一个目录。\n\n{0}",
+                        data_dir,
+                    ),
+                )
+                return 1
+            raise OSError(tr("无法为数据库创建启动锁，请检查目录的写入权限。"))
+    except (OSError, RuntimeError) as exc:
+        QMessageBox.critical(None, tr("无法启动"), tr("无法打开本地数据目录：\n{0}\n\n{1}", data_dir, exc))
+        return 1
+
+    try:
+        return _run_workbench(app, args, data_dir, database)
+    finally:
+        lock.unlock()
+
+
+def _run_workbench(app, args: argparse.Namespace, data_dir: Path, database: Path) -> int:
+    from PySide6.QtWidgets import QMessageBox
 
     from intentaware.contracts import Condition
     from intentaware.activity.demo import DemoObserver
@@ -47,13 +87,6 @@ def main(argv: list[str] | None = None) -> int:
     from intentaware.memory.store import SQLiteStore
     from intentaware.session import DesktopSession
     from intentaware.ui.window import MainWindow
-
-    app = QApplication([sys.argv[0]])
-    app.setApplicationName("IntentAware")
-    app.setOrganizationName("COMP7607-Group14")
-    language = args.lang or QSettings().value(LANGUAGE_SETTING, DEFAULT_LANGUAGE, type=str)
-    set_language(language)
-    QLocale.setDefault(QLocale("en_US" if language == "en" else "zh_CN"))
 
     classifier = None
     llm_config = None
@@ -115,12 +148,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
 
-    data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())
     if args.demo and delegator is None:
         delegator = DemoDelegator(reference_sample=True)
     try:
-        data_dir.mkdir(parents=True, exist_ok=True)
-        store = SQLiteStore(data_dir / "intentaware.sqlite3")
+        store = SQLiteStore(database)
         session = DesktopSession(
             store, classifier=classifier, delegator=delegator,
             condition=Condition(args.condition), demo_mode=args.demo,

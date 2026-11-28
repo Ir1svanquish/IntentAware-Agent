@@ -36,6 +36,12 @@ ENGLISH = {
     ),
     "无法启动": "Could not start",
     "无法打开本地数据目录：\n{0}\n\n{1}": "Could not open the local data directory:\n{0}\n\n{1}",
+    "数据目录正在使用": "Data folder is in use",
+    "此数据目录已在另一个 IntentAware 窗口中打开。请切回原窗口，或用 --data-dir 指定另一个目录。\n\n{0}": (
+        "This data folder is already open in another IntentAware window. Switch back to that "
+        "window or use --data-dir to select a different folder.\n\n{0}"
+    ),
+    "无法为数据库创建启动锁，请检查目录的写入权限。": "Could not lock the database. Check write access to the data folder.",
     # activity/monitor.py
     "切换到工作窗口，停留几秒后自动识别。": "Switch to a work window and stay there for a few seconds to identify the task.",
     "自动识别已暂停，可随时恢复。": "Automatic recognition is paused. You can resume it at any time.",

@@ -1,8 +1,8 @@
-Language / 语言：[简体中文](README.md) | **English**
+Language: [Chinese](README.md) | **English**
 
 # IntentAware-Agent
 
-[MVP demo and one-minute talk track](docs/MVP_DEMO.md)
+[MVP demo and one-minute talk track](docs/MVP_DEMO.en.md)
 
 **HKU COMP7607 · Natural Language Processing · Group 14**
 
@@ -17,20 +17,20 @@ Python 3.11 or newer is required. Run these commands from the repository root.
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
-.\.venv\Scripts\python -m intentaware
+.\.venv\Scripts\python -m intentaware --lang en
 ```
 
-After installing Python, you can also double-click [start.bat](start.bat) to start automatic recognition. The first launch downloads dependencies. Later launches can run offline.
+After installing Python, you can also double-click [start.bat](start.bat) to start automatic recognition. The first launch downloads dependencies. Later launches can run offline. To make English the default, choose **Settings → Interface language → English** and restart. The `--lang en` option selects English for just that launch.
 
 **macOS / Linux**
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python -m intentaware
+.venv/bin/python -m intentaware --lang en
 ```
 
-After launching, switch to VS Code, Word, or a browser window with a descriptive page title, stay there for a few seconds, and return to the workbench. When no task is saved and the title provides enough information, the app fills in the current task. Activity and classification update as windows change, without repeated typing. An existing task is preserved; use **修正** (Correct) when information is missing or the inference needs adjustment. The default study condition is D.
+After launching, switch to VS Code, Word, or a browser window with a descriptive page title, stay there for a few seconds, and return to the workbench. When no task is saved and the title provides enough information, the app fills in the current task. Activity and classification update as windows change, without repeated typing. An existing task is preserved; use **Edit task** when information is missing or the inference needs adjustment. The default study condition is D.
 
 [Operation, module integration, and tests (Chinese)](docs/GETTING_STARTED.md)
 
@@ -52,16 +52,16 @@ Use the virtual-environment Python path shown above, or activate the environment
 
 ### What runs today
 
-- A Chinese-language PySide6 workbench that shows the current task, ongoing activity, inference source, and reasons. Task correction and optional manual activity input are available when needed.
-- A first task inferred from a stable, informative foreground window, with four-way activity classification using local rules. Use **切换到此任务** (Switch to this task) to adopt a suggestion or **暂不切换** (Keep current task) to dismiss it for the current task during this session.
+- A PySide6 workbench in English or Simplified Chinese that shows the current task, ongoing activity, inference source, and reasons. Task correction and optional manual activity input are available when needed.
+- A first task inferred from a stable, informative foreground window, with four-way activity classification using local rules. Use **Switch to this task** to adopt a suggestion or **Keep current task** to dismiss it for the current task during this session.
 - Pause, resume, and application exclusions, with settings stored locally. Low-information titles remain uncertain and require correction.
 - SQLite storage for the current goal, confirmed progress, and detours. Those records are available after restarting the app.
 - G/P/I/D feature gates, background delegation with immediate or deferred delivery, early viewing, cancellation, and JSONL export for the current run. Delegation jobs live for the current app session.
-- Classification uses local rules and delegation uses an offline demo by default. Use `--classifier llm` for [model-based classification](docs/GETTING_STARTED.md#llm-分类可选) and `--delegator live` for [public-source delegation](src/intentaware/delegation/README.md).
+- Classification uses local rules and delegation uses an offline demo by default. Use `--classifier llm` for [model-based classification setup (Chinese)](docs/GETTING_STARTED.md#llm-分类可选) and `--delegator live` for [public-source delegation setup (Chinese)](src/intentaware/delegation/README.md).
 
 ### Desktop preview
 
-![IntentAware desktop workbench running locally](docs/images/desktop-starter.png)
+![IntentAware desktop workbench in English](docs/images/desktop-english.png)
 
 ## Overview
 
@@ -76,7 +76,7 @@ The original proposal describes a browser extension. The current implementation 
 ### Typical workflow
 
 1. **Start working:** Launch the app and continue in an editor or browser. A stable, informative window title can establish the first task.
-2. **Review and correct:** Check the displayed source. Use **修正** (Correct) to edit the task and next step. Human corrections are preserved.
+2. **Review and correct:** Check the displayed source. Use **Edit task** to edit the task and next step. Human corrections are preserved.
 3. **Follow your activity:** The workbench updates the activity, classification, and reason automatically. A window change never confirms progress.
 4. **Handle new tasks and detours:** Adopt a suggestion when you want to change the main task. Save a detour, or use offline delegation to try the background and delivery workflow.
 5. **Resume work:** Continue from your confirmed progress and next step. The sidebar also provides recognition controls, exclusions, and experiment records.
@@ -135,7 +135,7 @@ Key measures include macro-F1 and false-warning rates for activity classificatio
 
 ```text
 src/intentaware/
-├── ui/             # Chinese desktop workbench
+├── ui/             # Desktop workbench
 ├── activity/       # Foreground observation, stability sampling, and task monitor
 ├── nlp/            # Local task inference and activity classification
 ├── memory/         # Progress, detours, and resumption
@@ -166,10 +166,10 @@ Group members can comment with their GitHub handle and preferred module in [Join
 
 ## Data and privacy
 
-Automatic observation reads the foreground application name and window title. With the default local classifier, observations stay on the device. The app skips its own window and private windows or password managers covered by its rules. Add excluded applications in **设置** (Settings), or pause recognition at any time.
+Automatic observation reads the foreground application name and window title. With the default local classifier, observations stay on the device. The app skips its own window and private windows or password managers covered by its rules. Add excluded applications in **Settings**, or pause recognition at any time.
 
 When `--classifier llm` is enabled, the app sends the current goal, next step, confirmed progress, activity source, and current activity to the configured model endpoint. The activity may contain the foreground application name and window title. The app does not capture screenshots, keystrokes, or clipboard data, or read page, file, or document contents.
 
-Tasks, confirmed progress, detours, and preferences are stored in local SQLite. Automatically seeded and user-edited task titles are saved and may include file or page names. Raw ongoing window titles are not appended to event exports. Review exported records for sensitive information that you explicitly saved. See the [setup guide (Chinese)](docs/GETTING_STARTED.md#本地数据与测试) for data locations and overrides.
+Tasks, confirmed progress, detours, and preferences are stored locally. The app saves task records in SQLite. Automatically seeded and user-edited task titles are saved and may include file or page names. Raw ongoing window titles are not appended to event exports. Review exported records for sensitive information that you explicitly saved. See the [setup guide (Chinese)](docs/GETTING_STARTED.md#本地数据与测试) for data locations and overrides.
 
 Title-based rules provide limited evidence. A classification does not establish that editing occurred or progress was made. Meaningful main-task edits still require separate observation in the study. When adding a model provider, read API keys from local environment variables and explicitly define the data sent to that provider.

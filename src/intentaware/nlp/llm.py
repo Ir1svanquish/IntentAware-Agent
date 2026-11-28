@@ -14,6 +14,7 @@ from typing import Protocol
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
+from intentaware.localization import tr
 from .config import API_KEY_ENV, LlmConfig
 from .errors import NlpConfigError, NlpResponseError, NlpTimeoutError, NlpTransportError
 from .schema import validate_json
@@ -58,7 +59,7 @@ class OpenAICompatibleClient:
         self.last_latency_ms = None
         content = self._request(system, user)
         data = _decode_content(content)
-        validate_json(data, schema, context="模型返回")
+        validate_json(data, schema, context=tr("模型返回"))
         return data
 
     def _request(self, system: str, user: str) -> str:
@@ -92,22 +93,22 @@ class OpenAICompatibleClient:
                     continue
                 if exc.code in (401, 403):
                     raise NlpTransportError(
-                        f"模型服务鉴权失败（HTTP {exc.code}），请检查 {API_KEY_ENV}。"
+                        tr("模型服务鉴权失败（HTTP {0}），请检查 {1}。", exc.code, API_KEY_ENV)
                     ) from None
-                raise NlpTransportError(f"模型服务返回 HTTP {exc.code}。") from None
+                raise NlpTransportError(tr("模型服务返回 HTTP {0}。", exc.code)) from None
             except (urlerror.URLError, TimeoutError, socket.timeout) as exc:
                 if attempt < attempts:
                     self._sleep(_backoff(attempt))
                     continue
                 if _is_timeout(exc):
                     raise NlpTimeoutError(
-                        f"模型服务在 {self.config.timeout:g} 秒内没有响应。"
+                        tr("模型服务在 {0:g} 秒内没有响应。", self.config.timeout)
                     ) from None
                 raise NlpTransportError(
-                    "无法连接模型服务，请检查网络或 INTENTAWARE_LLM_BASE_URL。"
+                    tr("无法连接模型服务，请检查网络或 INTENTAWARE_LLM_BASE_URL。")
                 ) from None
 
-        raise NlpTransportError("模型请求失败：重试次数已用尽。")  # pragma: no cover
+        raise NlpTransportError(tr("模型请求失败：重试次数已用尽。"))  # pragma: no cover
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json; charset=utf-8"}
@@ -129,12 +130,12 @@ class FakeLLMClient:
     ) -> dict:
         self.calls.append({"system": system, "user": user, "schema": schema})
         if not self.responses:
-            raise AssertionError("FakeLLMClient 没有剩余预设响应。")
+            raise AssertionError(tr("FakeLLMClient 没有剩余预设响应。"))
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
         if not isinstance(response, dict):
-            raise AssertionError("FakeLLMClient 的预设响应必须是字典。")
+            raise AssertionError(tr("FakeLLMClient 的预设响应必须是字典。"))
         return response
 
 
@@ -149,13 +150,13 @@ def _message_content(raw: bytes) -> tuple[str, dict[str, int]]:
     try:
         body = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise NlpResponseError("模型服务没有返回 JSON 响应。") from None
+        raise NlpResponseError(tr("模型服务没有返回 JSON 响应。")) from None
     if not isinstance(body, dict):
-        raise NlpResponseError("模型服务返回了非对象 JSON。")
+        raise NlpResponseError(tr("模型服务返回了非对象 JSON。"))
 
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise NlpResponseError("模型服务返回中没有 choices。")
+        raise NlpResponseError(tr("模型服务返回中没有 choices。"))
     first = choices[0]
     message = first.get("message") if isinstance(first, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
@@ -163,7 +164,7 @@ def _message_content(raw: bytes) -> tuple[str, dict[str, int]]:
     if isinstance(content, dict):
         return json.dumps(content, ensure_ascii=False), usage
     if not isinstance(content, str) or not content.strip():
-        raise NlpResponseError("模型返回内容为空。")
+        raise NlpResponseError(tr("模型返回内容为空。"))
     return content, usage
 
 
@@ -182,9 +183,9 @@ def _decode_content(content: str) -> dict:
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
-        raise NlpResponseError("模型返回的不是合法 JSON，可能被截断或包含额外说明。") from None
+        raise NlpResponseError(tr("模型返回的不是合法 JSON，可能被截断或包含额外说明。")) from None
     if not isinstance(data, dict):
-        raise NlpResponseError("模型返回的 JSON 顶层必须是对象。")
+        raise NlpResponseError(tr("模型返回的 JSON 顶层必须是对象。"))
     return data
 
 

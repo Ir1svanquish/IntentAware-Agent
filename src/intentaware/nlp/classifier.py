@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from intentaware.localization import feedback_prompt, tr
 from intentaware.contracts import ActivityContext, ActivityLabel, Classification
 
 from .errors import NlpError, NlpResponseError
 from .fields import text_field
-from .local import OBSERVATION_PREFIX
+from .local import observation_payload
 from .prompts import Prompt, load_prompt
 
 CLASSIFY_SCHEMA = {
@@ -60,7 +61,7 @@ class LlmActivityClassifier:
 
     def classify(self, context: ActivityContext) -> Classification:
         if not context.activity.strip():
-            raise ValueError("活动描述不能为空。")
+            raise ValueError(tr("活动描述不能为空。"))
         try:
             return self._classify(context)
         except NlpError:
@@ -69,14 +70,14 @@ class LlmActivityClassifier:
             result = self.fallback.classify(context)
             return Classification(
                 result.label,
-                f"回退本地规则：{result.reason}",
+                tr("回退本地规则：{0}", result.reason),
                 result.suggested_next_step,
             )
 
     def _classify(self, context: ActivityContext) -> Classification:
         system, user = self.prompt.render(self._values(context))
         payload = self.client.complete_json(
-            system=system, user=user, schema=CLASSIFY_SCHEMA
+            system=feedback_prompt(system), user=user, schema=CLASSIFY_SCHEMA
         )
         return self._parse(payload)
 
@@ -84,10 +85,10 @@ class LlmActivityClassifier:
     def _values(context: ActivityContext) -> Mapping[str, str]:
         activity = context.activity.strip()
         return {
-            "goal_title": context.goal.title.strip() or "（未填写）",
-            "goal_next_step": context.goal.next_step.strip() or "（未填写）",
-            "progress": context.progress.strip() or "（未填写）",
-            "source": "窗口观察" if activity.startswith(OBSERVATION_PREFIX) else "用户描述",
+            "goal_title": context.goal.title.strip() or tr("（未填写）"),
+            "goal_next_step": context.goal.next_step.strip() or tr("（未填写）"),
+            "progress": context.progress.strip() or tr("（未填写）"),
+            "source": tr("窗口观察") if observation_payload(activity) is not None else tr("用户描述"),
             "activity": activity,
         }
 
@@ -95,11 +96,11 @@ class LlmActivityClassifier:
     def _parse(payload: Mapping[str, object]) -> Classification:
         raw_label = payload.get("label")
         if not isinstance(raw_label, str):
-            raise NlpResponseError("模型返回的 label 为空或不是字符串。")
+            raise NlpResponseError(tr("模型返回的 label 为空或不是字符串。"))
         try:
             label = ActivityLabel(raw_label)
         except ValueError:
-            raise NlpResponseError(f"模型返回了未知的活动类别：{raw_label!r}。") from None
+            raise NlpResponseError(tr("模型返回了未知的活动类别：{0!r}。", raw_label)) from None
         return Classification(
             label,
             text_field(payload.get("reason"), "reason", limit=_FIELD_LIMIT),

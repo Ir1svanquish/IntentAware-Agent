@@ -1,4 +1,4 @@
-Language / 语言：[简体中文](CONTRIBUTING.md) | **English**
+Language: [Chinese](CONTRIBUTING.md) | **English**
 
 # Contributing Guide (Four-week Desktop MVP)
 

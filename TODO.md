@@ -1,4 +1,4 @@
-语言 / Language：**简体中文** | [English](TODO.en.md)
+语言：**简体中文** | [English](TODO.en.md)
 
 # 四周冲刺任务清单
 

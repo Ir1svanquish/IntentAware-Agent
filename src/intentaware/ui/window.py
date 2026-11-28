@@ -8,7 +8,7 @@ import re
 from sqlite3 import Error as SQLiteError
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer
+from PySide6.QtCore import QSettings, QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from intentaware.localization import DEFAULT_LANGUAGE, LANGUAGE_SETTING, get_language, tr
 from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobStatus
 from intentaware.delegation import (
     DelegationDraft, DelegationError, LiveDelegator, LlmRequestFormulator, LocalRequestFormulator,
@@ -80,7 +81,7 @@ PAGES = (
     ("支线与恢复", "把临时想法放在这里，随时接回主任务。", "detours"),
     ("委托", "把一个问题交给后台，继续手头的工作。", "delegation"),
     ("实验与记录", "切换实验条件，查看并导出本次运行。", "experiment"),
-    ("设置", "决定何时识别，以及哪些应用不被观察。", "settings"),
+    ("设置", "选择语言，管理自动识别和应用排除。", "settings"),
 )
 
 
@@ -196,7 +197,7 @@ class MainWindow(QMainWindow):
         self._draft_goal_id: str | None = None
         self._resume_requested_key: str | None = None
         self._closed = False
-        self.setWindowTitle("IntentAware · 任务工作台")
+        self.setWindowTitle(tr("IntentAware · 任务工作台"))
         self.resize(1160, 800)
         self.setMinimumSize(900, 650)
         self._build()
@@ -237,8 +238,8 @@ class MainWindow(QMainWindow):
         titles.addWidget(self.page_subtitle)
         header_row.addLayout(titles, 1)
         self.monitor_status = _label(role="badge")
-        self.monitor_status.setAccessibleName("自动识别状态")
-        self.pause_button = _button("暂停识别", self._toggle_monitor, glyph="pause")
+        self.monitor_status.setAccessibleName(tr("自动识别状态"))
+        self.pause_button = _button(tr("暂停识别"), self._toggle_monitor, glyph="pause")
         header_row.addWidget(self.monitor_status, alignment=Qt.AlignmentFlag.AlignVCenter)
         header_row.addWidget(self.pause_button, alignment=Qt.AlignmentFlag.AlignVCenter)
         content.addWidget(header)
@@ -260,14 +261,14 @@ class MainWindow(QMainWindow):
         footer_row.setContentsMargins(28, 8, 28, 8)
         self.status_label = _label(wrap=True)
         self.status_label.setObjectName("status_label")
-        self.status_label.setAccessibleName("操作反馈")
+        self.status_label.setAccessibleName(tr("操作反馈"))
         footer_row.addWidget(self.status_label)
         content.addWidget(footer)
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(204)
+        sidebar.setFixedWidth(232 if get_language() == "en" else 204)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(16, 30, 16, 23)
         layout.setSpacing(6)
@@ -283,18 +284,19 @@ class MainWindow(QMainWindow):
         brand_row.addWidget(brand)
         brand_row.addStretch()
         layout.addLayout(brand_row)
-        caption = _label("    让注意力回到眼前的任务")
+        caption = _label(tr("    让注意力回到眼前的任务"))
         caption.setObjectName("brandCaption")
         layout.addWidget(caption)
         layout.addSpacing(38)
-        section = _label("    工作空间")
+        section = _label(tr("    工作空间"))
         section.setObjectName("sidebarSection")
         layout.addWidget(section)
         layout.addSpacing(5)
         self.nav_group = QButtonGroup(self)
         self.nav_buttons = []
         for index, (title, _, glyph) in enumerate(PAGES):
-            button = QPushButton(f"  {title}")
+            title = tr(title)
+            button = QPushButton("  " + title.replace("&", "&&"))
             button.setProperty("nav", True)
             button.setCheckable(True)
             button.setIcon(icon(glyph, "#C8D1E3", 19))
@@ -306,7 +308,7 @@ class MainWindow(QMainWindow):
             self.nav_buttons.append(button)
             if index == EXPERIMENTS:
                 layout.addSpacing(24)
-                section = _label("    偏好与工具")
+                section = _label(tr("    偏好与工具"))
                 section.setObjectName("sidebarSection")
                 layout.addWidget(section)
                 layout.addSpacing(5)
@@ -320,13 +322,13 @@ class MainWindow(QMainWindow):
         mode_row.setSpacing(8)
         shield = _label()
         shield.setPixmap(icon("shield", "#AFC4D2", 18).pixmap(18, 18))
-        mode = _label("演示模式" if self.demo else ("LLM 分类模式" if self._uses_llm else "本地工作空间"))
+        mode = _label(tr("演示模式") if self.demo else (tr("LLM 分类模式") if self._uses_llm else tr("本地工作空间")))
         mode.setObjectName("sidebarMode")
         mode_row.addWidget(shield)
         mode_row.addWidget(mode)
         mode_row.addStretch()
         layout.addLayout(mode_row)
-        note = _label("    活动文本发送到模型端点" if self._uses_llm else "    窗口标题在本机处理")
+        note = _label(tr("    活动文本发送到模型端点") if self._uses_llm else tr("    窗口标题在本机处理"))
         note.setObjectName("sidebarFootnote")
         layout.addWidget(note)
         return sidebar
@@ -345,11 +347,11 @@ class MainWindow(QMainWindow):
         self.task_card, task = _card(name="taskCard")
         header = QHBoxLayout()
         header.setSpacing(10)
-        header.addWidget(_label("当前主任务", "eyebrow"))
+        header.addWidget(_label(tr("当前主任务"), "eyebrow"))
         self.goal_origin_label = _label(role="badge")
         header.addWidget(self.goal_origin_label)
         header.addStretch()
-        self.correction_button = _button("修正", self._edit_goal, quiet=True, glyph="edit")
+        self.correction_button = _button(tr("修正"), self._edit_goal, quiet=True, glyph="edit")
         header.addWidget(self.correction_button)
         task.addLayout(header)
 
@@ -359,7 +361,7 @@ class MainWindow(QMainWindow):
         display.setSpacing(15)
         self.task_title = _label(wrap=True)
         self.task_title.setObjectName("taskTitle")
-        self.task_title.setAccessibleName("当前主任务")
+        self.task_title.setAccessibleName(tr("当前主任务"))
         self.task_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         display.addWidget(self.task_title)
         next_step = QFrame()
@@ -367,7 +369,7 @@ class MainWindow(QMainWindow):
         next_layout = QVBoxLayout(next_step)
         next_layout.setContentsMargins(16, 12, 16, 13)
         next_layout.setSpacing(5)
-        next_layout.addWidget(_label("接下来", "eyebrow"))
+        next_layout.addWidget(_label(tr("接下来"), "eyebrow"))
         self.task_next_step = _label(wrap=True)
         self.task_next_step.setObjectName("taskNextStep")
         next_layout.addWidget(self.task_next_step)
@@ -379,7 +381,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.task_card)
 
         self.suggestion_card, suggestion = _card(name="suggestionCard")
-        suggestion.addWidget(_label("发现另一项可能的任务", "eyebrow"))
+        suggestion.addWidget(_label(tr("发现另一项可能的任务"), "eyebrow"))
         suggestion_row = QHBoxLayout()
         suggestion_row.setSpacing(18)
         suggestion_text = QVBoxLayout()
@@ -392,8 +394,8 @@ class MainWindow(QMainWindow):
         suggestion_row.addLayout(suggestion_text, 1)
         suggestion_actions = QHBoxLayout()
         suggestion_actions.setSpacing(8)
-        self.dismiss_suggestion_button = _button("暂不切换", self._dismiss_suggestion, quiet=True)
-        self.adopt_suggestion_button = _button("切换到此任务", self._adopt_suggestion, primary=True)
+        self.dismiss_suggestion_button = _button(tr("暂不切换"), self._dismiss_suggestion, quiet=True)
+        self.adopt_suggestion_button = _button(tr("切换到此任务"), self._adopt_suggestion, primary=True)
         suggestion_actions.addWidget(self.dismiss_suggestion_button)
         suggestion_actions.addWidget(self.adopt_suggestion_button)
         suggestion_row.addLayout(suggestion_actions)
@@ -404,14 +406,14 @@ class MainWindow(QMainWindow):
         observations.setSpacing(16)
         activity_card, activity = _card()
         activity_header = QHBoxLayout()
-        activity_header.addWidget(_label("当前活动", "heading"))
+        activity_header.addWidget(_label(tr("当前活动"), "heading"))
         activity_header.addStretch()
         self.activity_state = _label(role="badge")
         activity_header.addWidget(self.activity_state)
         activity.addLayout(activity_header)
         self.activity_label = _label(wrap=True)
         self.activity_label.setObjectName("activityTitle")
-        self.activity_label.setAccessibleName("识别到的活动")
+        self.activity_label.setAccessibleName(tr("识别到的活动"))
         self.activity_source = _label(role="muted", wrap=True)
         self.window_title_label = _label(role="body", wrap=True)
         self.window_title_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -425,32 +427,32 @@ class MainWindow(QMainWindow):
         activity.addWidget(self.recognition_reason)
         observations.addWidget(activity_card, 6)
 
-        relation_card, relation = _card("与主任务的关系")
+        relation_card, relation = _card(tr("与主任务的关系"))
         self.classification_title = _label(wrap=True)
         self.classification_title.setObjectName("classificationTitle")
         self.classification_label = _label(role="body", wrap=True)
-        self.classification_label.setAccessibleName("活动分类结果")
+        self.classification_label.setAccessibleName(tr("活动分类结果"))
         self.classification_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         relation.addWidget(self.classification_title)
         relation.addWidget(self.classification_label)
         relation.addStretch()
-        self.detour_button = _button("暂存此活动", self._add_detour, glyph="detours")
+        self.detour_button = _button(tr("暂存此活动"), self._add_detour, glyph="detours")
         relation.addWidget(self.detour_button, alignment=Qt.AlignmentFlag.AlignLeft)
         observations.addWidget(relation_card, 5)
         layout.addLayout(observations)
 
-        self.manual_toggle = _button("手动补充活动", self._toggle_manual, quiet=True, glyph="chevron")
+        self.manual_toggle = _button(tr("手动补充活动"), self._toggle_manual, quiet=True, glyph="chevron")
         self.manual_toggle.setObjectName("manualToggle")
         self.manual_toggle.setCheckable(True)
         layout.addWidget(self.manual_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
         self.manual_panel, manual = _card()
-        self.activity_input = QPlainTextEdit(placeholderText="标题线索不足时，补充你正在做的事情。")
+        self.activity_input = QPlainTextEdit(placeholderText=tr("标题线索不足时，补充你正在做的事情。"))
         self.activity_input.setFixedHeight(94)
         self.activity_input.textChanged.connect(self._manual_activity_changed)
-        _field(manual, "活动描述", self.activity_input)
+        _field(manual, tr("活动描述"), self.activity_input)
         actions = QHBoxLayout()
-        self.analyze_button = _button("分析这段活动", self._analyze, primary=True)
-        self.manual_detour_button = _button("暂存为支线", lambda: self._add_detour(manual=True))
+        self.analyze_button = _button(tr("分析这段活动"), self._analyze, primary=True)
+        self.manual_detour_button = _button(tr("暂存为支线"), lambda: self._add_detour(manual=True))
         actions.addWidget(self.analyze_button)
         actions.addWidget(self.manual_detour_button)
         actions.addStretch()
@@ -467,12 +469,12 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.correction_editor)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        self.goal_input = QLineEdit(placeholderText="你希望完成什么？")
-        self.next_step_input = QLineEdit(placeholderText="下一项可以着手的具体动作")
-        self.progress_input = QLineEdit(placeholderText="只写下已经完成并确认的进度")
+        self.goal_input = QLineEdit(placeholderText=tr("你希望完成什么？"))
+        self.next_step_input = QLineEdit(placeholderText=tr("下一项可以着手的具体动作"))
+        self.progress_input = QLineEdit(placeholderText=tr("只写下已经完成并确认的进度"))
         self.goal_edit, self.next_step_edit, self.progress_edit = self.goal_input, self.next_step_input, self.progress_input
-        for caption, field in (("主任务", self.goal_input), ("下一步", self.next_step_input),
-                               ("已确认进度（可选）", self.progress_input)):
+        for caption, field in ((tr("主任务"), self.goal_input), (tr("下一步"), self.next_step_input),
+                               (tr("已确认进度（可选）"), self.progress_input)):
             _field(layout, caption, field)
             field.returnPressed.connect(self._save_goal)
         self.correction_error = _label(role="error", wrap=True)
@@ -480,8 +482,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.correction_error)
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 6, 0, 0)
-        self.save_goal_button = _button("保存修正", self._save_goal, primary=True)
-        self.cancel_correction_button = _button("取消", self._cancel_correction)
+        self.save_goal_button = _button(tr("保存修正"), self._save_goal, primary=True)
+        self.cancel_correction_button = _button(tr("取消"), self._cancel_correction)
         actions.addWidget(self.save_goal_button)
         actions.addWidget(self.cancel_correction_button)
         actions.addStretch()
@@ -491,41 +493,41 @@ class MainWindow(QMainWindow):
 
     def _build_detours(self) -> QWidget:
         page, layout = self._page()
-        self.detour_unavailable = _label("当前 G 条件未启用支线记忆。可在“实验与记录”中切换条件。", "notice", wrap=True)
+        self.detour_unavailable = _label(tr("当前 G 条件未启用支线记忆。可在“实验与记录”中切换条件。"), "notice", wrap=True)
         layout.addWidget(self.detour_unavailable)
-        panel, items = _card("暂存的活动")
+        panel, items = _card(tr("暂存的活动"))
         self.detour_hint = _label(role="muted", wrap=True)
         items.addWidget(self.detour_hint)
         self.detour_list = QListWidget(wordWrap=True)
-        self.detour_list.setAccessibleName("已暂存支线")
+        self.detour_list.setAccessibleName(tr("已暂存支线"))
         self.detour_list.setMinimumHeight(180)
         self.detour_list.currentRowChanged.connect(self._refresh_detour_actions)
         items.addWidget(self.detour_list)
-        self.detour_empty = _label("目前没有支线\n\n在工作台点击“暂存此活动”，把临时想法留到稍后。", "muted", wrap=True)
+        self.detour_empty = _label(tr("目前没有支线\n\n在工作台点击“暂存此活动”，把临时想法留到稍后。"), "muted", wrap=True)
         self.detour_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detour_empty.setMinimumHeight(150)
         items.addWidget(self.detour_empty)
         actions = QHBoxLayout()
-        self.new_detour_button = _button("新增支线", lambda: self._edit_detour(new=True))
-        self.edit_detour_button = _button("编辑选中支线", self._edit_detour)
-        self.remove_detour_button = _button("删除选中支线", self._remove_detour)
+        self.new_detour_button = _button(tr("新增支线"), lambda: self._edit_detour(new=True))
+        self.edit_detour_button = _button(tr("编辑选中支线"), self._edit_detour)
+        self.remove_detour_button = _button(tr("删除选中支线"), self._remove_detour)
         for button in (self.new_detour_button, self.edit_detour_button, self.remove_detour_button):
             actions.addWidget(button)
         actions.addStretch()
         items.addLayout(actions)
-        self.detour_editor, editor = _card("支线内容")
+        self.detour_editor, editor = _card(tr("支线内容"))
         self.detour_text_input = QPlainTextEdit()
         self.detour_text_input.setMaximumHeight(100)
-        self.detour_url_input = QLineEdit(placeholderText="https://…（可留空）")
-        self.detour_purpose_input = QLineEdit(placeholderText="为什么保存它，准备什么时候再看？（可留空）")
-        _field(editor, "笔记", self.detour_text_input)
-        _field(editor, "链接", self.detour_url_input)
-        _field(editor, "用途", self.detour_purpose_input)
+        self.detour_url_input = QLineEdit(placeholderText=tr("https://…（可留空）"))
+        self.detour_purpose_input = QLineEdit(placeholderText=tr("为什么保存它，准备什么时候再看？（可留空）"))
+        _field(editor, tr("笔记"), self.detour_text_input)
+        _field(editor, tr("链接"), self.detour_url_input)
+        _field(editor, tr("用途"), self.detour_purpose_input)
         self.detour_error = _label(role="error", wrap=True)
         editor.addWidget(self.detour_error)
         buttons = QHBoxLayout()
-        self.save_detour_button = _button("保存支线", self._save_detour, primary=True)
-        self.cancel_detour_button = _button("取消编辑", self._cancel_detour_edit)
+        self.save_detour_button = _button(tr("保存支线"), self._save_detour, primary=True)
+        self.cancel_detour_button = _button(tr("取消编辑"), self._cancel_detour_edit)
         buttons.addWidget(self.save_detour_button)
         buttons.addWidget(self.cancel_detour_button)
         buttons.addStretch()
@@ -533,15 +535,15 @@ class MainWindow(QMainWindow):
         self.detour_editor.hide()
         items.addWidget(self.detour_editor)
         layout.addWidget(panel)
-        panel, resume = _card("接回主任务")
-        self.resume_label = _label(RESUME_HINT, "body", wrap=True)
-        self.resume_label.setAccessibleName("任务恢复提示")
+        panel, resume = _card(tr("接回主任务"))
+        self.resume_label = _label(tr(RESUME_HINT), "body", wrap=True)
+        self.resume_label.setAccessibleName(tr("任务恢复提示"))
         self.resume_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         resume.addWidget(self.resume_label)
-        self.resume_button = _button("恢复主任务", self._resume, primary=True, glyph="arrow")
+        self.resume_button = _button(tr("恢复主任务"), self._resume, primary=True, glyph="arrow")
         actions = QHBoxLayout()
-        self.ignore_recovery_button = _button("忽略本条提示", self._ignore_recovery)
-        self.pause_recovery_button = _button("暂停恢复提示", self._toggle_recovery)
+        self.ignore_recovery_button = _button(tr("忽略本条提示"), self._ignore_recovery)
+        self.pause_recovery_button = _button(tr("暂停恢复提示"), self._toggle_recovery)
         for button in (self.resume_button, self.ignore_recovery_button, self.pause_recovery_button):
             actions.addWidget(button)
         actions.addStretch()
@@ -552,14 +554,14 @@ class MainWindow(QMainWindow):
 
     def _build_delegation(self) -> QWidget:
         page, layout = self._page()
-        self.delegation_unavailable = _label("当前条件未启用委托。可在“实验与记录”中切换到 I 或 D。", "notice", wrap=True)
+        self.delegation_unavailable = _label(tr("当前条件未启用委托。可在“实验与记录”中切换到 I 或 D。"), "notice", wrap=True)
         layout.addWidget(self.delegation_unavailable)
         panel, delegation = _card()
         heading = QHBoxLayout()
-        heading.addWidget(_label("交给后台的问题", "heading"))
+        heading.addWidget(_label(tr("交给后台的问题"), "heading"))
         heading.addStretch()
         self.delegation_badge = _label(
-            "公开检索 · LLM" if self._uses_live_delegator else "离线演示",
+            tr("公开检索 · LLM") if self._uses_live_delegator else tr("离线演示"),
             "badge",
         )
         if self._uses_live_delegator:
@@ -567,28 +569,28 @@ class MainWindow(QMainWindow):
         heading.addWidget(self.delegation_badge)
         delegation.addLayout(heading)
         self.delegation_mode_hint = _label(
-            "先整理可编辑请求，确认后再检索最多两份公开来源。"
+            tr("先整理可编辑请求，确认后再检索最多两份公开来源。")
             if self._uses_live_delegator
-            else "当前使用离线示例回答，用于验证委托与交付流程。",
+            else tr("当前使用离线示例回答，用于验证委托与交付流程。"),
             "muted",
             wrap=True,
         )
         delegation.addWidget(self.delegation_mode_hint)
         if self._draft_executor is not None:
             delegation.addWidget(_label(
-                "点击「用模型整理」或按回车会向配置的模型发送输入的问题。补充澄清时也会发送所填内容。",
+                tr("点击「用模型整理」或按回车会向配置的模型发送输入的问题。补充澄清时也会发送所填内容。"),
                 "muted", wrap=True,
             ))
         controls = QHBoxLayout()
-        self.question_input = QLineEdit(placeholderText="例如：被打断后，怎样更快恢复当前任务？")
-        self.question_input.setAccessibleName("委托问题")
+        self.question_input = QLineEdit(placeholderText=tr("例如：被打断后，怎样更快恢复当前任务？"))
+        self.question_input.setAccessibleName(tr("委托问题"))
         self.question_input.returnPressed.connect(self._submit)
         controls.addWidget(self.question_input, 1)
         self.formulate_button = _button(
-            "用模型整理" if self._draft_executor is not None else "整理请求", self._formulate
+            tr("用模型整理") if self._draft_executor is not None else tr("整理请求"), self._formulate
         )
         controls.addWidget(self.formulate_button)
-        self.submit_button = _button("提交委托", self._submit, primary=True)
+        self.submit_button = _button(tr("提交委托"), self._submit, primary=True)
         self.submit_button.setVisible(not self._uses_live_delegator)
         controls.addWidget(self.submit_button)
         delegation.addLayout(controls)
@@ -598,13 +600,13 @@ class MainWindow(QMainWindow):
         draft_layout = QVBoxLayout(self.draft_editor)
         draft_layout.setContentsMargins(16, 14, 16, 14)
         draft_layout.setSpacing(10)
-        draft_layout.addWidget(_label("可编辑委托请求（确认后提交给后台）", "heading"))
-        self.draft_question_input = QLineEdit(placeholderText="整理后的明确问题")
-        _field(draft_layout, "明确问题", self.draft_question_input)
-        self.draft_scope_input = QLineEdit(placeholderText="例如：只核对文件兼容性与免费版限制")
-        _field(draft_layout, "处理范围", self.draft_scope_input)
-        self.draft_output_input = QLineEdit(placeholderText="例如：简短结论、来源链接及未解决点")
-        _field(draft_layout, "期望输出", self.draft_output_input)
+        draft_layout.addWidget(_label(tr("可编辑委托请求（确认后提交给后台）"), "heading"))
+        self.draft_question_input = QLineEdit(placeholderText=tr("整理后的明确问题"))
+        _field(draft_layout, tr("明确问题"), self.draft_question_input)
+        self.draft_scope_input = QLineEdit(placeholderText=tr("例如：只核对文件兼容性与免费版限制"))
+        _field(draft_layout, tr("处理范围"), self.draft_scope_input)
+        self.draft_output_input = QLineEdit(placeholderText=tr("例如：简短结论、来源链接及未解决点"))
+        _field(draft_layout, tr("期望输出"), self.draft_output_input)
 
         self.clarification_box = QFrame()
         clarify_layout = QVBoxLayout(self.clarification_box)
@@ -613,11 +615,11 @@ class MainWindow(QMainWindow):
         self.clarification_label = _label("", "notice", wrap=True)
         clarify_layout.addWidget(self.clarification_label)
         clarify_row = QHBoxLayout()
-        self.clarification_input = QLineEdit(placeholderText="补充澄清说明（最多一次，也可直接确认提交）")
-        self.clarification_input.setAccessibleName("澄清说明")
+        self.clarification_input = QLineEdit(placeholderText=tr("补充澄清说明（最多一次，也可直接确认提交）"))
+        self.clarification_input.setAccessibleName(tr("澄清说明"))
         clarify_row.addWidget(self.clarification_input, 1)
         self.apply_clarification_button = _button(
-            "发送澄清并重新整理" if self._draft_executor is not None else "补充并重新整理",
+            tr("发送澄清并重新整理") if self._draft_executor is not None else tr("补充并重新整理"),
             self._apply_clarification,
         )
         clarify_row.addWidget(self.apply_clarification_button)
@@ -626,9 +628,9 @@ class MainWindow(QMainWindow):
         draft_layout.addWidget(self.clarification_box)
 
         draft_actions = QHBoxLayout()
-        self.confirm_draft_button = _button("确认并提交委托", self._confirm_draft, primary=True)
+        self.confirm_draft_button = _button(tr("确认并提交委托"), self._confirm_draft, primary=True)
         self.cancel_draft_button = _button(
-            "取消整理", lambda: self._perform(self._cancel_draft), quiet=True
+            tr("取消整理"), lambda: self._perform(self._cancel_draft), quiet=True
         )
         draft_actions.addWidget(self.confirm_draft_button)
         draft_actions.addWidget(self.cancel_draft_button)
@@ -638,25 +640,25 @@ class MainWindow(QMainWindow):
         delegation.addWidget(self.draft_editor)
 
         self.job_list = QListWidget()
-        self.job_list.setAccessibleName("委托列表")
+        self.job_list.setAccessibleName(tr("委托列表"))
         self.job_list.setFixedHeight(112)
         self.job_list.currentItemChanged.connect(self._refresh_job_result)
         delegation.addWidget(self.job_list)
-        self.job_empty = _label("还没有委托。提交一个问题后，可以继续在其他页面工作。", "muted", wrap=True)
+        self.job_empty = _label(tr("还没有委托。提交一个问题后，可以继续在其他页面工作。"), "muted", wrap=True)
         delegation.addWidget(self.job_empty)
         layout.addWidget(panel)
-        panel, result = _card("答案与交付")
-        self.job_result = QPlainTextEdit(readOnly=True, placeholderText="选择一项委托查看状态，已交付的答案会显示在这里。")
-        self.job_result.setAccessibleName("委托结果")
+        panel, result = _card(tr("答案与交付"))
+        self.job_result = QPlainTextEdit(readOnly=True, placeholderText=tr("选择一项委托查看状态，已交付的答案会显示在这里。"))
+        self.job_result.setAccessibleName(tr("委托结果"))
         self.job_result.setMinimumHeight(136)
         result.addWidget(self.job_result)
         actions = QHBoxLayout()
-        self.checkpoint_label_input = QLineEdit(placeholderText="可选节点说明，例如：写完本段")
-        self.checkpoint_label_input.setAccessibleName("检查点说明")
+        self.checkpoint_label_input = QLineEdit(placeholderText=tr("可选节点说明，例如：写完本段"))
+        self.checkpoint_label_input.setAccessibleName(tr("检查点说明"))
         actions.addWidget(self.checkpoint_label_input, 1)
-        self.checkpoint_button = _button("到达检查点", self._checkpoint, primary=True)
-        self.reveal_button = _button("提前查看", self._reveal)
-        self.cancel_button = _button("取消委托", self._cancel)
+        self.checkpoint_button = _button(tr("到达检查点"), self._checkpoint, primary=True)
+        self.reveal_button = _button(tr("提前查看"), self._reveal)
+        self.cancel_button = _button(tr("取消委托"), self._cancel)
         actions.addWidget(self.checkpoint_button)
         actions.addWidget(self.reveal_button)
         actions.addWidget(self.cancel_button)
@@ -667,35 +669,35 @@ class MainWindow(QMainWindow):
 
     def _build_experiments(self) -> QWidget:
         page, layout = self._page()
-        panel, settings = _card("实验条件")
+        panel, settings = _card(tr("实验条件"))
         self.condition_combo = QComboBox()
         for condition, text in CONDITIONS.items():
-            self.condition_combo.addItem(text, condition.value)
+            self.condition_combo.addItem(tr(text), condition.value)
         self.condition_combo.currentIndexChanged.connect(self._change_condition)
-        _field(settings, "当前条件", self.condition_combo)
+        _field(settings, tr("当前条件"), self.condition_combo)
         self.condition_description = _label(role="body", wrap=True)
         settings.addWidget(self.condition_description)
-        settings.addWidget(_label("切换条件会开始新一轮记录。先完成或取消仍在处理、等待交付的委托。", "muted", wrap=True))
+        settings.addWidget(_label(tr("切换条件会开始新一轮记录。先完成或取消仍在处理、等待交付的委托。"), "muted", wrap=True))
         layout.addWidget(panel)
         panel, events = _card()
         header = QHBoxLayout()
-        header.addWidget(_label("本次运行记录", "heading"))
+        header.addWidget(_label(tr("本次运行记录"), "heading"))
         header.addStretch()
-        self.export_button = _button("导出 JSONL", self._export, glyph="download")
+        self.export_button = _button(tr("导出 JSONL"), self._export, glyph="download")
         header.addWidget(self.export_button)
         events.addLayout(header)
-        events.addWidget(_label("本地事件记录 · 时间为 UTC", "muted"))
-        self.effective_edit_button = _button("记录有效主任务编辑", self._record_effective_edit)
-        self.effective_edit_button.setToolTip("研究者实际观察到参与者继续编辑主任务后再记录。")
+        events.addWidget(_label(tr("本地事件记录 · 时间为 UTC"), "muted"))
+        self.effective_edit_button = _button(tr("记录有效主任务编辑"), self._record_effective_edit)
+        self.effective_edit_button.setToolTip(tr("研究者实际观察到参与者继续编辑主任务后再记录。"))
         events.addWidget(self.effective_edit_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.event_list = QListWidget()
-        self.event_list.setAccessibleName("本次运行事件")
+        self.event_list.setAccessibleName(tr("本次运行事件"))
         self.event_list.setMinimumHeight(200)
         events.addWidget(self.event_list)
         layout.addWidget(panel)
-        panel, demo = _card("演示示例")
-        demo.addWidget(_label("填入一组示例输入，尝试支线和离线委托。示例不会自动保存。", "body", wrap=True))
-        self.sample_button = _button("填入演示示例", self._fill_sample)
+        panel, demo = _card(tr("演示示例"))
+        demo.addWidget(_label(tr("填入一组示例输入，尝试支线和离线委托。示例不会自动保存。"), "body", wrap=True))
+        self.sample_button = _button(tr("填入演示示例"), self._fill_sample)
         demo.addWidget(self.sample_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(panel)
         layout.addStretch()
@@ -703,12 +705,22 @@ class MainWindow(QMainWindow):
 
     def _build_settings(self) -> QWidget:
         page, layout = self._page()
-        panel, monitor = _card("自动任务识别")
+        panel, language = _card(tr("语言"))
+        self.language_combo = QComboBox()
+        self.language_combo.addItem(tr("简体中文"), "zh")
+        self.language_combo.addItem("English", "en")
+        saved_language = QSettings().value(LANGUAGE_SETTING, DEFAULT_LANGUAGE, type=str)
+        self.language_combo.setCurrentIndex(max(0, self.language_combo.findData(saved_language)))
+        self.language_combo.activated.connect(self._save_language)
+        _field(language, tr("界面语言"), self.language_combo)
+        self.language_status = _label(tr("界面和反馈将在重启后切换语言。"), "muted", wrap=True)
+        language.addWidget(self.language_status)
+        layout.addWidget(panel)
+        panel, monitor = _card(tr("自动任务识别"))
         if self._uses_llm:
-            hint = ("活动分类会将主任务、下一步、已确认进度、活动来源和当前活动发送到已配置的模型端点。"
-                    "当前活动可能包含前台应用名和窗口标题。主任务可随时修正。")
+            hint = (tr("活动分类会将主任务、下一步、已确认进度、活动来源和当前活动发送到已配置的模型端点。当前活动可能包含前台应用名和窗口标题。主任务可随时修正。"))
         else:
-            hint = "根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。"
+            hint = tr("根据前台应用名和窗口标题，在本机推断当前任务。主任务可随时修正。")
         monitor.addWidget(_label(hint, "body", wrap=True))
         self.settings_monitor_status = _label(role="muted", wrap=True)
         monitor.addWidget(self.settings_monitor_status)
@@ -720,30 +732,39 @@ class MainWindow(QMainWindow):
         row.setSpacing(16)
         self.current_app_label = _label(role="body", wrap=True)
         row.addWidget(self.current_app_label, 1)
-        self.exclude_current_button = _button("排除当前应用", self._exclude_current_app)
+        self.exclude_current_button = _button(tr("排除当前应用"), self._exclude_current_app)
         row.addWidget(self.exclude_current_button)
         monitor.addLayout(row)
         layout.addWidget(panel)
-        panel, exclusions = _card("不观察的应用")
-        exclusions.addWidget(_label("每行一个应用名称，与识别到的应用名称一致。保存后立即生效。", "muted", wrap=True))
-        self.excluded_apps_input = QPlainTextEdit(placeholderText="例如：\nKeePassXC\n1Password")
-        self.excluded_apps_input.setAccessibleName("排除的应用名称，每行一个")
+        panel, exclusions = _card(tr("不观察的应用"))
+        exclusions.addWidget(_label(tr("每行一个应用名称，与识别到的应用名称一致。保存后立即生效。"), "muted", wrap=True))
+        self.excluded_apps_input = QPlainTextEdit(placeholderText=tr("例如：\nKeePassXC\n1Password"))
+        self.excluded_apps_input.setAccessibleName(tr("排除的应用名称，每行一个"))
         self.excluded_apps_input.setFixedHeight(116)
         self.excluded_apps_input.textChanged.connect(self._mark_exclusions_dirty)
         exclusions.addWidget(self.excluded_apps_input)
-        self.save_exclusions_button = _button("保存排除列表", self._save_exclusions, primary=True)
+        self.save_exclusions_button = _button(tr("保存排除列表"), self._save_exclusions, primary=True)
         exclusions.addWidget(self.save_exclusions_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(panel)
-        privacy = _label("前台观察只读取应用名称和窗口标题。\n可随时暂停自动识别或在此排除应用。", "muted", wrap=True)
+        privacy = _label(tr("前台观察只读取应用名称和窗口标题。\n可随时暂停自动识别或在此排除应用。"), "muted", wrap=True)
         layout.addWidget(privacy)
         layout.addStretch()
         return page
 
+    def _save_language(self, index: int) -> None:
+        settings = QSettings()
+        settings.setValue(LANGUAGE_SETTING, self.language_combo.itemData(index))
+        settings.sync()
+        if settings.status() != settings.Status.NoError:
+            self.language_status.setText(tr("无法保存语言设置。"))
+        else:
+            self.language_status.setText(tr("已保存语言设置，重启后生效。"))
+
     def _show_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
         self.nav_buttons[index].setChecked(True)
-        self.page_title.setText(PAGES[index][0])
-        self.page_subtitle.setText(PAGES[index][1])
+        self.page_title.setText(tr(PAGES[index][0]))
+        self.page_subtitle.setText(tr(PAGES[index][1]))
 
     def _load_goal(self) -> None:
         if self._editing_goal:
@@ -755,10 +776,10 @@ class MainWindow(QMainWindow):
 
     def _startup_status(self) -> str:
         if self._uses_llm:
-            return "LLM 分类会把活动文本（可能含窗口标题）和主任务信息发送到已配置的模型端点。"
+            return tr("LLM 分类会把活动文本（可能含窗口标题）和主任务信息发送到已配置的模型端点。")
         if self.monitor:
-            return "自动识别只使用本机的应用名称与窗口标题。"
-        return "手动模式 · 可修正主任务，或展开手动补充活动。"
+            return tr("自动识别只使用本机的应用名称与窗口标题。")
+        return tr("手动模式 · 可修正主任务，或展开手动补充活动。")
 
     def _status(self, text: str = "", *, error: bool = False) -> None:
         self.status_label.setText(text)
@@ -801,29 +822,29 @@ class MainWindow(QMainWindow):
     def _fill_sample(self) -> None:
         self._edit_goal()
         if self.demo and not self._uses_live_delegator:
-            self.goal_input.setText("完成命令行校验功能")
-            self.next_step_input.setText("补齐错误提示并运行测试")
-            self.progress_input.setText("已实现参数解析")
-            self.activity_input.setPlainText("顺便研究 argparse 的可选参数怎么设为必填。")
-            self.question_input.setText(DEMO_QUESTION)
+            self.goal_input.setText(tr("完成命令行校验功能"))
+            self.next_step_input.setText(tr("补齐错误提示并运行测试"))
+            self.progress_input.setText(tr("已实现参数解析"))
+            self.activity_input.setPlainText(tr("顺便研究 argparse 的可选参数怎么设为必填。"))
+            self.question_input.setText(tr(DEMO_QUESTION))
         else:
-            self.goal_input.setText("完成研究报告初稿")
-            self.next_step_input.setText("整理三篇文献，写出方法章节的提纲")
-            self.progress_input.setText("已确定研究问题，收集了三篇参考文献")
-            self.activity_input.setPlainText("顺便浏览了一些演示文稿模板，想保存下来以后参考。")
-            self.question_input.setText("被打断后，怎样更快地恢复当前任务？")
+            self.goal_input.setText(tr("完成研究报告初稿"))
+            self.next_step_input.setText(tr("整理三篇文献，写出方法章节的提纲"))
+            self.progress_input.setText(tr("已确定研究问题，收集了三篇参考文献"))
+            self.activity_input.setPlainText(tr("顺便浏览了一些演示文稿模板，想保存下来以后参考。"))
+            self.question_input.setText(tr("被打断后，怎样更快地恢复当前任务？"))
         self.manual_toggle.setChecked(True)
         self._toggle_manual()
-        self._status("已填入示例。保存修正后，可以分析示例活动或提交离线委托。")
+        self._status(tr("已填入示例。保存修正后，可以分析示例活动或提交离线委托。"))
 
     def _save_goal(self) -> None:
         def save() -> str:
             method = self.monitor.correct_task if self.monitor else self.session.set_goal
             method(self.goal_input.text(), self.next_step_input.text(), self.progress_input.text())
             self._analyzed_activity = None
-            self.resume_label.setText(RESUME_HINT)
+            self.resume_label.setText(tr(RESUME_HINT))
             self._cancel_correction()
-            return "已保存主任务、下一步和已确认进度。"
+            return tr("已保存主任务、下一步和已确认进度。")
 
         if not self._perform(save):
             self.correction_error.setText(self.status_label.text())
@@ -835,7 +856,7 @@ class MainWindow(QMainWindow):
         opened = self.manual_toggle.isChecked()
         self.manual_panel.setVisible(opened)
         self.manual_toggle.setIcon(icon("chevron_up" if opened else "chevron", size=16))
-        self.manual_toggle.setAccessibleDescription("已展开" if opened else "已折叠")
+        self.manual_toggle.setAccessibleDescription(tr("已展开") if opened else tr("已折叠"))
         if opened:
             self.activity_input.setFocus()
 
@@ -863,8 +884,8 @@ class MainWindow(QMainWindow):
             def adopt() -> str:
                 self.monitor.adopt_suggestion()
                 self._load_goal()
-                self.resume_label.setText(RESUME_HINT)
-                return "已切换到这项任务。"
+                self.resume_label.setText(tr(RESUME_HINT))
+                return tr("已切换到这项任务。")
             if self._perform(adopt):
                 self.correction_button.setFocus()
 
@@ -873,7 +894,7 @@ class MainWindow(QMainWindow):
             self.monitor.dismiss_suggestion()
             self._refresh_task()
             self.correction_button.setFocus()
-            self._status("已保留当前主任务。")
+            self._status(tr("已保留当前主任务。"))
 
     def _mark_exclusions_dirty(self) -> None:
         self._exclusions_dirty = True
@@ -892,7 +913,7 @@ class MainWindow(QMainWindow):
                     names = self.excluded_apps_input.toPlainText().splitlines()
                     if app not in names:
                         self.excluded_apps_input.appendPlainText(app)
-                return f"已排除 {app}，主任务继续保留。"
+                return tr("已排除 {0}，主任务继续保留。", app)
             self._perform(exclude)
 
     def _save_exclusions(self) -> None:
@@ -901,7 +922,7 @@ class MainWindow(QMainWindow):
                 names = [name.strip() for name in self.excluded_apps_input.toPlainText().splitlines() if name.strip()]
                 self.monitor.set_excluded_apps(names)
                 self._exclusions_dirty = False
-                return "已保存应用排除列表。"
+                return tr("已保存应用排除列表。")
             self._perform(save)
 
     def _change_condition(self) -> None:
@@ -910,8 +931,8 @@ class MainWindow(QMainWindow):
             self.session.set_condition(condition)
             self._analyzed_activity = None
             self._cancel_draft()
-            self.resume_label.setText(RESUME_HINT)
-            return f"已切换到 {condition.value} 条件，开始新的运行记录。"
+            self.resume_label.setText(tr(RESUME_HINT))
+            return tr("已切换到 {0} 条件，开始新的运行记录。", condition.value)
         self._perform(change)
         self._sync_condition()
 
@@ -921,7 +942,7 @@ class MainWindow(QMainWindow):
         description = CONDITION_DESCRIPTIONS[self.session.condition]
         if self._uses_live_delegator and self.session.condition in (Condition.I, Condition.D):
             description = description.replace("离线委托", "公开检索委托")
-        self.condition_description.setText(description)
+        self.condition_description.setText(tr(description))
 
     def _analyze(self) -> None:
         def analyze() -> str:
@@ -932,7 +953,7 @@ class MainWindow(QMainWindow):
                 self.session.start_analysis(activity)
             self._analyzed_activity = activity
             self._manual_observation_key = self._observation_key()
-            return "已提交补充活动，判断结果会显示在下方。"
+            return tr("已提交补充活动，判断结果会显示在下方。")
         self._perform(analyze)
 
     def _add_detour(self, manual: bool = False) -> None:
@@ -941,7 +962,7 @@ class MainWindow(QMainWindow):
                         else self.activity_input.toPlainText())
             self.session.add_detour(activity)
             self._show_page(DETOURS)
-            return "已暂存这条活动，可以继续主任务。"
+            return tr("已暂存这条活动，可以继续主任务。")
         self._perform(add)
 
     def _refresh_detour_actions(self) -> None:
@@ -976,7 +997,7 @@ class MainWindow(QMainWindow):
     def _save_detour(self) -> None:
         def save() -> str:
             if self.session.goal is None or self._detour_editor_goal_id != self.session.goal.id:
-                raise ValueError("当前任务已改变，请重新打开支线编辑。")
+                raise ValueError(tr("当前任务已改变，请重新打开支线编辑。"))
             values = (self.detour_text_input.toPlainText(), self.detour_url_input.text(),
                       self.detour_purpose_input.text())
             if self._editing_detour_id is None:
@@ -986,7 +1007,7 @@ class MainWindow(QMainWindow):
             self._cancel_detour_edit()
             self._refresh()
             _sync_rows(self.detour_list, self._detour_rows(), select=item.id)
-            return "已保存支线笔记、链接和用途。"
+            return tr("已保存支线笔记、链接和用途。")
         if not self._perform(save):
             self.detour_error.setText(self.status_label.text())
 
@@ -995,13 +1016,13 @@ class MainWindow(QMainWindow):
             def remove() -> str:
                 self.session.remove_detour(detour_id)
                 self._cancel_detour_edit()
-                return "已删除选中的支线。"
+                return tr("已删除选中的支线。")
             self._perform(remove)
 
     def _detour_rows(self) -> list[tuple[str, str]]:
         return [(item.id, "\n".join(filter(None, (
-            item.text, f"链接：{item.url}" if item.url else "",
-            f"用途：{item.purpose}" if item.purpose else "",
+            item.text, tr("链接：{0}", item.url) if item.url else "",
+            tr("用途：{0}", item.purpose) if item.purpose else "",
         )))) for item in self.session.detours] if self.session.memory_enabled else []
 
     def _resume(self) -> None:
@@ -1014,14 +1035,14 @@ class MainWindow(QMainWindow):
         def ignore() -> str:
             self.session.ignore_recovery()
             self._resume_requested_key = None
-            return "已忽略当前提示，任务与进度仍然保留。"
+            return tr("已忽略当前提示，任务与进度仍然保留。")
         self._perform(ignore)
 
     def _toggle_recovery(self) -> None:
         def toggle() -> str:
             self.session.set_recovery_paused(not self.session.recovery_paused)
             self._resume_requested_key = None
-            return "已暂停恢复提示，可随时手动查看。" if self.session.recovery_paused else "已开启恢复提示。"
+            return tr("已暂停恢复提示，可随时手动查看。") if self.session.recovery_paused else tr("已开启恢复提示。")
         self._perform(toggle)
 
     def _submit(self) -> None:
@@ -1035,7 +1056,7 @@ class MainWindow(QMainWindow):
             self._cancel_draft()
             self._show_page(DELEGATION)
             self._refresh_jobs(job.id)
-            return "已提交离线演示委托，后台处理期间可以继续工作。"
+            return tr("已提交离线演示委托，后台处理期间可以继续工作。")
         self._perform(submit)
 
     def _apply_draft(self, draft: DelegationDraft) -> None:
@@ -1045,7 +1066,7 @@ class MainWindow(QMainWindow):
         self.draft_scope_input.setText(draft.scope)
         self.draft_output_input.setText(draft.expected_output)
         if draft.needs_clarification:
-            self.clarification_label.setText(f"澄清建议：{draft.clarification_question}")
+            self.clarification_label.setText(tr("澄清建议：{0}", draft.clarification_question))
             self.clarification_input.clear()
             self.clarification_box.show()
         else:
@@ -1060,11 +1081,11 @@ class MainWindow(QMainWindow):
     def _prepare_draft(self, question: str, clarification: str = "") -> str:
         goal = self.session.goal
         if not self.session.delegation_enabled or goal is None:
-            raise ValueError("请先设置主任务并在 I 或 D 条件下整理委托。")
+            raise ValueError(tr("请先设置主任务并在 I 或 D 条件下整理委托。"))
         if not question.strip():
-            raise ValueError("请输入需要委托的问题。")
+            raise ValueError(tr("请输入需要委托的问题。"))
         if self._draft_future is not None:
-            raise ValueError("正在整理委托请求。")
+            raise ValueError(tr("正在整理委托请求。"))
         self._show_page(DELEGATION)
         kwargs = {
             "goal_title": goal.title if not self._uses_live_delegator and self._draft_executor is None else "",
@@ -1075,17 +1096,17 @@ class MainWindow(QMainWindow):
             self._draft_goal_id = goal.id
             self._draft_future = self._draft_executor.submit(self.formulator.draft, question, **kwargs)
             self.draft_editor.show()
-            return "正在后台整理委托请求，可以继续处理主任务。"
+            return tr("正在后台整理委托请求，可以继续处理主任务。")
         self._apply_draft(self.formulator.draft(question, **kwargs))
-        return "已整理委托请求，可编辑后确认。"
+        return tr("已整理委托请求，可编辑后确认。")
 
     def _apply_clarification(self) -> None:
         def apply_clarify() -> str:
             if self._draft is None or not self._draft.needs_clarification:
-                raise ValueError("当前没有正在整理的委托请求。")
+                raise ValueError(tr("当前没有正在整理的委托请求。"))
             answer = self.clarification_input.text().strip()
             if not answer:
-                raise ValueError("请先填写澄清说明，或直接点击“确认并提交委托”。")
+                raise ValueError(tr("请先填写澄清说明，或直接点击“确认并提交委托”。"))
             return self._prepare_draft(
                 self.draft_question_input.text() or self._draft.raw_question,
                 answer,
@@ -1095,10 +1116,10 @@ class MainWindow(QMainWindow):
     def _confirm_draft(self) -> None:
         def confirm() -> str:
             if self._draft is None or self._draft_future is not None:
-                raise ValueError("请等待委托请求整理完成。")
+                raise ValueError(tr("请等待委托请求整理完成。"))
             question = self.draft_question_input.text().strip()
             if not question:
-                raise ValueError("明确问题不能为空。")
+                raise ValueError(tr("明确问题不能为空。"))
             draft = DelegationDraft(
                 raw_question=self._draft.raw_question,
                 question=question,
@@ -1112,9 +1133,9 @@ class MainWindow(QMainWindow):
             self._show_page(DELEGATION)
             self._refresh_jobs(job.id)
             return (
-                "已确认并提交异步委托，后台正在检索公开来源，可继续处理主任务。"
+                tr("已确认并提交异步委托，后台正在检索公开来源，可继续处理主任务。")
                 if self._uses_live_delegator
-                else "已确认并提交离线演示委托，后台处理期间可以继续工作。"
+                else tr("已确认并提交离线演示委托，后台处理期间可以继续工作。")
             )
         self._perform(confirm)
 
@@ -1149,21 +1170,21 @@ class MainWindow(QMainWindow):
                 self._cancel_draft()
             self._status(str(error), error=True)
         else:
-            self._status("已整理委托请求，可编辑后确认。")
+            self._status(tr("已整理委托请求，可编辑后确认。"))
         self._refresh()
 
     def _checkpoint(self) -> None:
         def checkpoint() -> str:
             count = self.session.checkpoint(self.checkpoint_label_input.text())
             self.checkpoint_label_input.clear()
-            return f"已记录检查点，交付了 {count} 项答案。"
+            return tr("已记录检查点，交付了 {0} 项答案。", count)
         self._perform(checkpoint)
 
     def _reveal(self) -> None:
         if job_id := _selected_id(self.job_list):
             def reveal() -> str:
                 self.session.reveal_job(job_id)
-                return "已提前交付选中的答案。"
+                return tr("已提前交付选中的答案。")
             self._perform(reveal)
 
     def _cancel(self) -> None:
@@ -1171,9 +1192,9 @@ class MainWindow(QMainWindow):
             self._perform(lambda: self.session.cancel_job(job_id))
 
     def _export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "导出本次运行事件", "intentaware-events.jsonl", "JSON Lines (*.jsonl)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("导出本次运行事件"), "intentaware-events.jsonl", "JSON Lines (*.jsonl)")
         if path:
-            self._perform(lambda: f"已导出 {self.session.export_events(path)} 条运行事件。")
+            self._perform(lambda: tr("已导出 {0} 条运行事件。", self.session.export_events(path)))
 
     def _record_effective_edit(self) -> None:
         self._perform(self.session.record_effective_edit)
@@ -1191,14 +1212,14 @@ class MainWindow(QMainWindow):
         self.sample_button.setEnabled(not pending)
         active_jobs = any(job.status in (JobStatus.RUNNING, JobStatus.READY) for job in self.session.jobs)
         self.adopt_suggestion_button.setEnabled(not pending and not active_jobs)
-        self.adopt_suggestion_button.setToolTip("先完成或取消待交付的委托，再切换主任务。" if active_jobs else "")
+        self.adopt_suggestion_button.setToolTip(tr("先完成或取消待交付的委托，再切换主任务。") if active_jobs else "")
         activity = self.monitor.activity_text if self.monitor else self.activity_input.toPlainText()
         self.detour_button.setEnabled(memory and has_goal and not pending and bool(activity.strip()))
         self.manual_detour_button.setEnabled(memory and has_goal and not pending and bool(self.activity_input.toPlainText().strip()))
         self.resume_button.setEnabled(memory and has_goal)
         self.ignore_recovery_button.setEnabled(memory and has_goal)
         self.pause_recovery_button.setEnabled(memory and has_goal)
-        self.pause_recovery_button.setText("开启恢复提示" if self.session.recovery_paused else "暂停恢复提示")
+        self.pause_recovery_button.setText(tr("开启恢复提示") if self.session.recovery_paused else tr("暂停恢复提示"))
         if self._draft_goal_id and (
             not delegation or not has_goal or self.session.goal.id != self._draft_goal_id
         ):
@@ -1219,7 +1240,7 @@ class MainWindow(QMainWindow):
         self.delegation_unavailable.setVisible(not delegation)
 
         detours = self.session.detours if memory else []
-        self.detour_hint.setText(f"已暂存 {len(detours)} 条活动，主任务与进度继续保留。" if detours else "把注意力先放回主任务，支线会留在这里。")
+        self.detour_hint.setText(tr("已暂存 {0} 条活动，主任务与进度继续保留。", len(detours)) if detours else tr("把注意力先放回主任务，支线会留在这里。"))
         _sync_rows(self.detour_list, self._detour_rows())
         self.detour_list.setVisible(bool(detours))
         self.detour_empty.setVisible(not detours)
@@ -1241,82 +1262,82 @@ class MainWindow(QMainWindow):
     def _refresh_events(self) -> None:
         _sync_rows(self.event_list, [
             (event.id, f"{datetime.fromisoformat(event.occurred_at):%H:%M:%S}     {event.condition.value}     "
-                       f"{EVENT_NAMES.get(event.name, event.name)}")
+                       f"{tr(EVENT_NAMES.get(event.name, event.name))}")
             for event in reversed(self.session.events)
         ])
 
     def _refresh_task(self) -> None:
         goal = self.session.goal
-        _preview(self.task_title, goal.title if goal else "先回到你正在做的事", 240)
-        _preview(self.task_next_step, (goal.next_step or "点击“修正”，补充一个可以着手的下一步。") if goal
-                 else ("切回正在处理的应用，停留片刻；任务会在这里自动出现。" if self.monitor
-                       else "点击“修正”设置主任务，再补充一次当前活动。"), 240)
+        _preview(self.task_title, goal.title if goal else tr("先回到你正在做的事"), 240)
+        _preview(self.task_next_step, (goal.next_step or tr("点击“修正”，补充一个可以着手的下一步。")) if goal
+                 else (tr("切回正在处理的应用，停留片刻；任务会在这里自动出现。") if self.monitor
+                       else tr("点击“修正”设置主任务，再补充一次当前活动。")), 240)
         progress = self.session.progress.note if self.session.progress else ""
-        _preview(self.progress_label, f"已确认进度 · {progress}" if progress else "窗口变化不会自动改写已确认进度。", 400)
+        _preview(self.progress_label, tr("已确认进度 · {0}", progress) if progress else tr("窗口变化不会自动改写已确认进度。"), 400)
         origin = self.monitor.goal_origin if self.monitor else "manual"
-        text = {"automatic": "自动识别", "manual": "手动确认", "restored": "已恢复"}.get(origin, "待识别")
-        _badge(self.goal_origin_label, text if goal else "等待任务", "accent" if goal else "")
+        text = {"automatic": tr("自动识别"), "manual": tr("手动确认"), "restored": tr("已恢复")}.get(origin, tr("待识别"))
+        _badge(self.goal_origin_label, text if goal else tr("等待任务"), "accent" if goal else "")
         suggestion = self.monitor.switch_suggestion if self.monitor and not self._editing_goal else None
         self.suggestion_card.setVisible(suggestion is not None)
         if suggestion:
             _preview(self.suggestion_title, suggestion.title)
-            _preview(self.suggestion_reason, f"建议下一步 · {suggestion.next_step}", 200)
+            _preview(self.suggestion_reason, tr("建议下一步 · {0}", suggestion.next_step), 200)
 
     def _refresh_monitor(self) -> None:
         if not self.monitor:
-            _badge(self.monitor_status, "手动模式")
+            _badge(self.monitor_status, tr("手动模式"))
             self.pause_button.hide()
-            self.settings_monitor_status.setText("当前以手动模式运行。重新启动正常模式后可自动识别。")
-            self.current_app_label.setText("暂无前台应用线索")
+            self.settings_monitor_status.setText(tr("当前以手动模式运行。重新启动正常模式后可自动识别。"))
+            self.current_app_label.setText(tr("暂无前台应用线索"))
             self.exclude_current_button.setEnabled(False)
             self.excluded_apps_input.setEnabled(False)
             self.save_exclusions_button.setEnabled(False)
             return
         state = self.monitor.state
         states = {
-            "starting": ("等待窗口线索", ""), "watching": ("自动识别中", "active"),
-            "sampling": ("正在识别", "active"), "paused": ("识别已暂停", ""),
-            "unavailable": ("识别暂不可用", "warning"), "excluded": ("当前应用已排除", ""),
-            "idle": ("等待活动", ""), "error": ("识别遇到问题", "warning"),
+            "starting": (tr("等待窗口线索"), ""), "watching": (tr("自动识别中"), "active"),
+            "sampling": (tr("正在识别"), "active"), "paused": (tr("识别已暂停"), ""),
+            "unavailable": (tr("识别暂不可用"), "warning"), "excluded": (tr("当前应用已排除"), ""),
+            "idle": (tr("等待活动"), ""), "error": (tr("识别遇到问题"), "warning"),
         }
-        text, tone = states.get(state, ("等待窗口线索", ""))
+        text, tone = states.get(state, (tr("等待窗口线索"), ""))
         if self.demo and state in ("watching", "sampling"):
-            text = "演示识别中"
+            text = tr("演示识别中")
         _badge(self.monitor_status, text, tone)
         self.monitor_status.setToolTip(self.monitor.message)
-        self.pause_button.setText("暂停识别" if self.monitor.enabled else "恢复识别")
+        self.pause_button.setText(tr("暂停识别") if self.monitor.enabled else tr("恢复识别"))
         self.pause_button.setIcon(icon("pause" if self.monitor.enabled else "play", size=16))
         self.settings_monitor_status.setText(self.monitor.message)
         snapshot = self.monitor.snapshot
-        self.current_app_label.setText(f"最近识别的应用：{snapshot.app_name}" if snapshot else "暂无可排除的应用线索")
+        self.current_app_label.setText(tr("最近识别的应用：{0}", snapshot.app_name) if snapshot else tr("暂无可排除的应用线索"))
         self.exclude_current_button.setEnabled(snapshot is not None)
         self._sync_exclusions()
 
     def _refresh_activity(self) -> None:
         if not self.monitor:
             activity = self.activity_input.toPlainText().strip()
-            _preview(self.activity_label, activity or "补充一次当前活动")
-            self.activity_source.setText("手动输入 · LLM 分类" if self._uses_llm else "手动输入 · 本地分类")
+            _preview(self.activity_label, activity or tr("补充一次当前活动"))
+            self.activity_source.setText(tr("手动输入 · LLM 分类") if self._uses_llm else tr("手动输入 · 本地分类"))
             self.window_title_label.hide()
-            _badge(self.activity_state, "手动")
+            _badge(self.activity_state, tr("手动"))
             self.confidence_label.hide()
-            self.recognition_reason.setText("展开下方“手动补充活动”，描述你现在正在做什么。")
+            self.recognition_reason.setText(tr("展开下方“手动补充活动”，描述你现在正在做什么。"))
             return
         snapshot, suggestion = self.monitor.snapshot, self.monitor.suggestion
         if snapshot and self.monitor.activity_text:
-            activity_titles = {"开发": "代码编辑", "写作": "文档编辑", "阅读": "文献阅读", "浏览": "网页浏览"}
+            activity_titles = {"开发": tr("代码编辑"), "写作": tr("文档编辑"), "阅读": tr("文献阅读"), "浏览": tr("网页浏览")}
             category = getattr(suggestion, "category", "未知") if suggestion else "未知"
-            self.activity_label.setText(activity_titles.get(category, "正在使用工作窗口"))
-            source = "示例窗口标题" if snapshot.source == "demo" else "前台窗口标题"
+            self.activity_label.setText(activity_titles.get(category, tr("正在使用工作窗口")))
+            source = tr("示例窗口标题") if snapshot.source == "demo" else tr("前台窗口标题")
             if self._uses_llm:
-                source = f"{source} · 活动文本发送到模型端点"
+                source = tr("{0} · 活动文本发送到模型端点", source)
             _preview(self.activity_source, f"{snapshot.app_name} · {source}")
             _preview(self.window_title_label, snapshot.window_title, 160)
             self.window_title_label.show()
-            state_label = "最近一次" if self.monitor.state == "idle" else ("示例" if snapshot.source == "demo" else "已识别")
+            state_label = tr("最近一次") if self.monitor.state == "idle" else (tr("示例") if snapshot.source == "demo" else tr("已识别"))
             _badge(self.activity_state, state_label, "" if self.monitor.state == "idle" else "active")
             if suggestion:
-                confidence = {"high": "把握较高", "medium": "可供参考", "low": "需要确认"}.get(suggestion.confidence, "需要确认")
+                confidence = {"high": tr("把握较高"), "medium": tr("可供参考"), "low": tr("需要确认")}.get(suggestion.confidence, tr("需要确认"))
                 _badge(self.confidence_label, confidence, "accent" if suggestion.confidence == "high" else "")
                 self.confidence_label.show()
                 _preview(self.recognition_reason, suggestion.reason, 160)
@@ -1325,18 +1346,18 @@ class MainWindow(QMainWindow):
                 self.recognition_reason.setText(self.monitor.message)
         else:
             titles = {
-                "paused": "自动识别已暂停", "unavailable": "暂时无法读取窗口标题",
-                "excluded": "这个应用不参与识别", "error": "还没有取得活动线索",
+                "paused": tr("自动识别已暂停"), "unavailable": tr("暂时无法读取窗口标题"),
+                "excluded": tr("这个应用不参与识别"), "error": tr("还没有取得活动线索"),
             }
-            self.activity_label.setText(titles.get(self.monitor.state, "等待你的工作窗口"))
+            self.activity_label.setText(titles.get(self.monitor.state, tr("等待你的工作窗口")))
             self.activity_source.setText(
-                "应用名称与窗口标题 · 可随活动文本发送到模型端点" if self._uses_llm
-                else "应用名称与窗口标题 · 仅在本机处理"
+                tr("应用名称与窗口标题 · 可随活动文本发送到模型端点") if self._uses_llm
+                else tr("应用名称与窗口标题 · 仅在本机处理")
             )
             self.window_title_label.hide()
             self.confidence_label.hide()
-            _badge(self.activity_state, "已暂停" if self.monitor.state == "paused" else "等待")
-            self.recognition_reason.setText(self.monitor.message or "回到正在处理的应用，停留片刻即可。")
+            _badge(self.activity_state, tr("已暂停") if self.monitor.state == "paused" else tr("等待"))
+            self.recognition_reason.setText(self.monitor.message or tr("回到正在处理的应用，停留片刻即可。"))
 
     def _observation_key(self) -> tuple[str, str] | None:
         snapshot = self.monitor.snapshot if self.monitor else None
@@ -1356,26 +1377,31 @@ class MainWindow(QMainWindow):
         if self._distraction_prompt is None:
             self._recorded_distraction_prompt = None
         if self.session.analysis_pending and activity:
-            title, text = "正在判断关联", "正在对照当前主任务，稍后会在这里给出判断。"
+            title, text = tr("正在判断关联"), tr("正在对照当前主任务，稍后会在这里给出判断。")
         elif current:
-            title = CLASSIFICATIONS[result.label]
-            source = "手动补充 · " if manual_context and self.monitor else ""
-            text = f"{source}{result.reason}\n\n建议：{result.suggested_next_step}"
+            title = tr(CLASSIFICATIONS[result.label])
+            source = tr("手动补充 · ") if manual_context and self.monitor else ""
+            text = tr("{0}{1}\n\n建议：{2}", source, result.reason, result.suggested_next_step)
         elif self.monitor and not activity:
-            title, text = "主任务继续保留", "有新的活动线索时，再判断它与主任务的关系。"
+            title, text = tr("主任务继续保留"), tr("有新的活动线索时，再判断它与主任务的关系。")
         elif self.session.analysis_error:
-            title, text = "暂时无法判断", f"{self.session.analysis_error}\n可以补充活动后重试。"
+            title, text = tr("暂时无法判断"), tr("{0}\n可以补充活动后重试。", self.session.analysis_error)
         else:
-            title = "等待活动线索" if not activity else "还需要一些线索"
-            text = ANALYSIS_HINT if self.monitor else "补充当前活动并分析后，会在这里给出判断。"
+            title = tr("等待活动线索") if not activity else tr("还需要一些线索")
+            text = tr(ANALYSIS_HINT) if self.monitor else tr("补充当前活动并分析后，会在这里给出判断。")
         self.classification_title.setText(title)
         _preview(self.classification_label, text, 1200)
         if self.session.analysis_pending and manual_context:
-            manual_text = "正在判断补充的活动…"
+            manual_text = tr("正在判断补充的活动…")
         elif manual_context and result and classified_activity == manual:
-            manual_text = f"{CLASSIFICATIONS[result.label]} · {result.reason}\n建议：{result.suggested_next_step}"
+            manual_text = tr(
+                "{0} · {1}\n建议：{2}",
+                tr(CLASSIFICATIONS[result.label]),
+                result.reason,
+                result.suggested_next_step,
+            )
         elif self.session.analysis_error and self._analyzed_activity == manual:
-            manual_text = f"分析失败：{self.session.analysis_error}"
+            manual_text = tr("分析失败：{0}", self.session.analysis_error)
         else:
             manual_text = ""
         _preview(self.manual_classification_label, manual_text, 1200)
@@ -1393,7 +1419,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_jobs(self, select: str | None = None) -> None:
         jobs = self.session.jobs if self.session.delegation_enabled else []
-        _sync_rows(self.job_list, [(job.id, f"{JOB_STATES[job.status]}   {job.question}") for job in reversed(jobs)], select)
+        _sync_rows(self.job_list, [(job.id, f"{tr(JOB_STATES[job.status])}   {job.question}") for job in reversed(jobs)], select)
         self.job_list.setVisible(bool(jobs))
         self.job_empty.setVisible(not jobs)
         self._refresh_job_result()
@@ -1415,15 +1441,15 @@ class MainWindow(QMainWindow):
             return ""
         if job.status == JobStatus.DELIVERED and job.result:
             sources = "\n".join(
-                f"[来源 {index}] {source.title}\n{source.url}"
+                tr("[来源 {0}] {1}\n{2}", index, source.title, source.url)
                 for index, source in enumerate(job.result.sources, start=1)
             )
-            return f"{job.result.answer}\n\n来源\n{sources}" if sources else job.result.answer
+            return tr("{0}\n\n来源\n{1}", job.result.answer, sources) if sources else job.result.answer
         if job.status == JobStatus.READY:
-            return "答案已就绪。到达检查点后交付，也可以提前查看。"
+            return tr("答案已就绪。到达检查点后交付，也可以提前查看。")
         if job.status == JobStatus.FAILED:
-            return f"委托失败：{job.error or '未收到有效的答案。'}"
-        return JOB_STATES[job.status]
+            return tr("委托失败：{0}", job.error or tr("未收到有效的答案。"))
+        return tr(JOB_STATES[job.status])
 
     def _poll(self) -> None:
         try:

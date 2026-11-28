@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from urllib.parse import urlsplit
 
+from intentaware.localization import tr
 from intentaware.contracts import Condition, Detour, ExperimentEvent, Goal, Progress
 
 
@@ -82,7 +83,7 @@ class SQLiteStore:
             yield
             if outermost:
                 if self._rollback_only:
-                    raise RuntimeError("事务中的写入失败，所有变更已撤销。")
+                    raise RuntimeError(tr("事务中的写入失败，所有变更已撤销。"))
                 self._db.commit()
         except BaseException:
             if outermost:
@@ -95,7 +96,7 @@ class SQLiteStore:
 
     def save_goal(self, goal: Goal) -> None:
         if not isinstance(goal.title, str) or not goal.title.strip():
-            raise ValueError("任务目标不能为空。")
+            raise ValueError(tr("任务目标不能为空。"))
         with self.transaction():
             self._db.execute(
                 """INSERT INTO goals (id, title, next_step, created_at)
@@ -153,9 +154,9 @@ class SQLiteStore:
     @staticmethod
     def _validate_detour(detour: Detour) -> None:
         if not isinstance(detour.text, str) or not detour.text.strip():
-            raise ValueError("支线笔记不能为空。")
+            raise ValueError(tr("支线笔记不能为空。"))
         if not isinstance(detour.url, str) or not isinstance(detour.purpose, str):
-            raise ValueError("链接和用途必须是文字。")
+            raise ValueError(tr("链接和用途必须是文字。"))
         if detour.url:
             try:
                 parsed = urlsplit(detour.url)
@@ -165,7 +166,7 @@ class SQLiteStore:
             except ValueError:
                 valid = False
             if not valid:
-                raise ValueError("请输入完整的 http:// 或 https:// 链接，或将链接留空。")
+                raise ValueError(tr("请输入完整的 http:// 或 https:// 链接，或将链接留空。"))
 
     def update_detour(self, detour: Detour) -> None:
         """Update content only; never reassign a detour to another goal."""
@@ -176,7 +177,7 @@ class SQLiteStore:
                 (detour.text, detour.url, detour.purpose, detour.id, detour.goal_id),
             )
             if cursor.rowcount != 1:
-                raise ValueError("找不到当前任务的这条支线记录。")
+                raise ValueError(tr("找不到当前任务的这条支线记录。"))
 
     def list_detours(self, goal_id: str) -> list[Detour]:
         rows = self._db.execute("SELECT * FROM detours WHERE goal_id = ? ORDER BY rowid", (goal_id,))
@@ -216,7 +217,7 @@ class SQLiteStore:
             except FileNotFoundError:
                 same_file = False
             if same_file or target.resolve() == self._database_path:
-                raise ValueError("请选择其他路径，以保留本地数据库。")
+                raise ValueError(tr("请选择其他路径，以保留本地数据库。"))
 
         temporary_file = NamedTemporaryFile(
             mode="w", encoding="utf-8", newline="\n", dir=target.parent,

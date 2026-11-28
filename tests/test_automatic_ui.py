@@ -3,6 +3,7 @@
 import time
 
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog
 
@@ -13,6 +14,7 @@ from intentaware.activity.models import ActivitySnapshot, CaptureResult
 from intentaware.activity.monitor import TaskMonitor
 from intentaware.contracts import ActivityLabel, JobStatus
 from intentaware.delegation.demo import DEMO_QUESTION, DemoDelegator
+from intentaware.localization import get_language, set_language
 from intentaware.memory.store import SQLiteStore
 from intentaware.nlp.local import LocalActivityClassifier
 from intentaware.session import DesktopSession
@@ -72,7 +74,19 @@ def test_observations_update_without_editing_or_analyze_click(automatic_window):
     assert session.goal.title == "撰写「研究报告」"
 
 
-def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, monkeypatch):
+@pytest.fixture
+def interface_language(request):
+    previous = get_language()
+    set_language(request.param)
+    yield request.param
+    set_language(previous)
+
+
+@pytest.mark.parametrize("interface_language", ["zh", "en"], indirect=True)
+def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, monkeypatch, interface_language):
+    english = interface_language == "en"
+    progress = "Argument parsing is implemented" if english else "已实现参数解析"
+    question = "How do I make an argparse option required?" if english else DEMO_QUESTION
     data_path = tmp_path / "demo.sqlite3"
     export_path = tmp_path / "events-demo.jsonl"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(export_path), "JSONL"))
@@ -86,13 +100,21 @@ def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, mo
     try:
         wait_until(lambda: session.goal is not None and session.classification is not None)
         assert "IntentAware-Agent" in session.goal.title
+        if english:
+            assert window.page_title.text() == "Workbench"
+            assert session.goal.title.startswith("Continue developing")
+            assert monitor.activity_text.startswith("Foreground window:")
+            window.correction_button.click()
+            window.goal_input.clear()
+            window.save_goal_button.click()
+            assert window.status_label.text() == "Enter a goal for this task."
         goal_id = session.goal.id
 
         window.experiment_nav.click()
         window.sample_button.click()
         window.save_goal_button.click()
         assert session.goal.id == goal_id
-        assert session.progress.note == "已实现参数解析"
+        assert session.progress.note == progress
         wait_until(lambda: not session.analysis_pending)
         window.analyze_button.click()
         window.experiment_nav.click()
@@ -101,20 +123,28 @@ def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, mo
         assert not any(e.name == "distraction_prompted" for e in session.events)
         window.workbench_nav.click()
         wait_until(lambda: any(e.name == "distraction_prompted" for e in session.events))
+        if english:
+            assert window.classification_title.text() == "Possible detour"
+            assert session.classification.reason.startswith("Local rules: Detected")
+            assert "Save the detour" in window.manual_classification_label.text()
         window.manual_detour_button.click()
         assert len(session.detours) == 1
 
         window.delegation_nav.click()
-        assert window.question_input.text() == DEMO_QUESTION
+        assert window.question_input.text() == question
         window.formulate_button.click()
         assert not session.jobs
         window.confirm_draft_button.click()
         wait_until(lambda: bool(session.jobs) and session.jobs[0].status == JobStatus.READY)
         assert "required=" not in window.job_result.toPlainText()
+        if english:
+            assert window.job_list.item(0).text().startswith("Ready to deliver")
 
         window.detours_nav.click()
         window.resume_button.click()
         assert session.goal.next_step in window.resume_label.text()
+        if english:
+            assert "Confirmed progress:" in window.resume_label.text()
         assert not any(e.name == "effective_edit" for e in session.events)
         window.experiment_nav.click()
         window.effective_edit_button.click()
@@ -124,6 +154,8 @@ def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, mo
         assert session.jobs[0].status == JobStatus.DELIVERED
         assert "required=" in window.job_result.toPlainText()
         assert "docs.python.org" in window.job_result.toPlainText()
+        if english:
+            assert "Verified excerpts" in window.job_result.toPlainText()
         window.experiment_nav.click()
         window.export_button.click()
         rows = load_events(export_path)
@@ -133,17 +165,59 @@ def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, mo
         assert check_events(export_path).error_count == 0
         assert check_events(export_path).warning_count == 0
         assert resume_times(rows)["measured"]["n"] == 1
-        assert DEMO_QUESTION not in export_path.read_text(encoding="utf-8")
+        assert question not in export_path.read_text(encoding="utf-8")
     finally:
         window.close()
 
     restored = DesktopSession(SQLiteStore(data_path))
     try:
         assert restored.goal.id == goal_id
-        assert restored.progress.note == "已实现参数解析"
+        assert restored.progress.note == progress
         assert len(restored.detours) == 1
     finally:
         restored.close()
+
+
+@pytest.mark.parametrize("interface_language", ["en"], indirect=True)
+def test_settings_save_language_for_the_next_launch(app, tmp_path, monkeypatch, interface_language):
+    settings = QSettings(str(tmp_path / "preferences.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("intentaware.ui.window.QSettings", lambda: settings)
+
+    session = DesktopSession(SQLiteStore(tmp_path / "settings.sqlite3"))
+    window = MainWindow(session)
+    try:
+        window.settings_nav.click()
+        assert window.page_title.text() == "Settings"
+        index = window.language_combo.findData("zh")
+        window.language_combo.setCurrentIndex(index)
+        window.language_combo.activated.emit(index)
+        assert settings.value("language") == "zh"
+        assert window.language_status.text() == "Language preference saved. Restart the app to apply it."
+        assert window.page_title.text() == "Settings"
+    finally:
+        window.close()
+
+
+def test_english_recognition_respects_an_existing_task(app, tmp_path):
+    data_path = tmp_path / "previous.sqlite3"
+    session = DesktopSession(SQLiteStore(data_path))
+    goal = session.start_goal("继续开发「IntentAware-Agent」", "检查界面")
+    session.close()
+
+    previous = get_language()
+    set_language("en")
+    session = DesktopSession(SQLiteStore(data_path))
+    monitor = TaskMonitor(session, DemoObserver(), stable_seconds=0)
+    window = MainWindow(session, monitor=monitor, demo=True)
+    window.show()
+    try:
+        wait_until(lambda: bool(monitor.activity_text))
+        assert session.goal == goal
+        assert window.task_title.text() == goal.title
+        assert monitor.switch_suggestion is None
+    finally:
+        window.close()
+        set_language(previous)
 
 
 def test_polling_preserves_an_open_correction_draft(automatic_window):

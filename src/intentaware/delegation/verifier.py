@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from intentaware.localization import tr
 from intentaware.contracts import Source
 
 from .models import CitationClaim, RetrievedDocument, VerificationReport
@@ -30,11 +31,11 @@ class CitationVerifier:
             source_id = claim.source_id.strip()
             doc = by_id.get(source_id)
             if doc is None:
-                dropped.append(f"未知来源编号 {source_id or '(空)'}")
+                dropped.append(tr("未知来源编号 {0}", source_id or tr("(空)")))
                 continue
             quote = " ".join(claim.quote.split())
             if len(quote) < 2 or quote not in excerpts[source_id]:
-                dropped.append(f"来源 {source_id} 的引用摘录未能在检索原文中核实")
+                dropped.append(tr("来源 {0} 的引用摘录未能在检索原文中核实", source_id))
                 continue
             verified_quotes[CitationClaim(source_id, quote)] = None
             if doc.url not in seen_urls:

@@ -47,3 +47,8 @@ class TaskSuggestion:
     reason: str
     source_key: str
     category: str = "未知"
+    identity_title: str = ""
+
+    @property
+    def task_key(self) -> str:
+        return task_title_key(self.identity_title or self.title)

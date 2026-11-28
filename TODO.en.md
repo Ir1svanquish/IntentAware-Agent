@@ -1,8 +1,8 @@
-Language / 语言：[简体中文](TODO.md) | **English**
+Language: [Chinese](TODO.md) | **English**
 
 # Four-week Sprint Checklist
 
-> The desktop workbench combines foreground observation, task correction, detour recovery, delegation and event export. Follow the [offline MVP demo](docs/MVP_DEMO.md). The LLM scored 0.896 macro-F1 on 40 development examples. Live-service validation, held-out evaluation and the participant study remain pending. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
+> The desktop workbench combines foreground observation, task correction, detour recovery, delegation and event export. Follow the [offline MVP demo](docs/MVP_DEMO.en.md). The LLM scored 0.896 macro-F1 on 40 development examples. Live-service validation, held-out evaluation and the participant study remain pending. Claim modules in [GitHub Issues](https://github.com/Ir1svanquish/IntentAware-Agent/issues).
 
 ## Week 1 — Foundation and early study preparation
 

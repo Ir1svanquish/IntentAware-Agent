@@ -1,8 +1,8 @@
-Language / 语言：[简体中文](README.md) | **English**
+Language: [Chinese](README.md) | **English**
 
 # PySide6 desktop source
 
-After installing from the repository root, run `python -m intentaware` to open the Chinese-language workbench. Normal launch observes the foreground application and window title, then applies local task-inference and classification rules. `--demo` uses simulated observations; `--manual` starts with recognition paused. Delegation remains an offline demonstration.
+After installing from the repository root, run `python -m intentaware --lang en` to open the workbench in English. To save a language preference, go to **Settings → Interface language** and restart the app. Normal launch observes the foreground application and window title, then applies local task-inference and classification rules. `--demo` uses simulated observations; `--manual` starts with recognition paused. Delegation remains an offline demonstration.
 
 | Entry point | Responsibility |
 | --- | --- |

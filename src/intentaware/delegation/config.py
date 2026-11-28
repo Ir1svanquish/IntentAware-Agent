@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 
+from intentaware.localization import tr
 from .errors import DelegationConfigError
 
 DEFAULT_SEARCH_PROVIDER = "public"
@@ -50,19 +51,24 @@ class DelegationConfig:
         provider = (values.get(SEARCH_PROVIDER_ENV) or DEFAULT_SEARCH_PROVIDER).strip().lower()
         if provider not in VALID_SEARCH_PROVIDERS:
             raise DelegationConfigError(
-                f"{SEARCH_PROVIDER_ENV} 必须是 {' / '.join(VALID_SEARCH_PROVIDERS)} 之一，当前为 {provider!r}。"
+                tr(
+                    "{0} 必须是 {1} 之一，当前为 {2!r}。",
+                    SEARCH_PROVIDER_ENV,
+                    ' / '.join(VALID_SEARCH_PROVIDERS),
+                    provider,
+                )
             )
 
         api_key = (values.get(SEARCH_API_KEY_ENV) or "").strip()
         base_url = (values.get(SEARCH_BASE_URL_ENV) or "").strip()
         if base_url and not base_url.startswith(("http://", "https://")):
             raise DelegationConfigError(
-                f"{SEARCH_BASE_URL_ENV} 必须是 http(s) 地址，当前为 {base_url!r}。"
+                tr("{0} 必须是 http(s) 地址，当前为 {1!r}。", SEARCH_BASE_URL_ENV, base_url)
             )
 
         if provider == "tavily" and not api_key:
             raise DelegationConfigError(
-                f"启用 tavily 检索时必须设置 {SEARCH_API_KEY_ENV}。"
+                tr("启用 tavily 检索时必须设置 {0}。", SEARCH_API_KEY_ENV)
             )
 
         max_sources = _number(
@@ -104,9 +110,9 @@ def _number(
     try:
         value = cast(raw)
     except ValueError:
-        raise DelegationConfigError(f"{name} 必须是数字，当前为 {raw!r}。") from None
+        raise DelegationConfigError(tr("{0} 必须是数字，当前为 {1!r}。", name, raw)) from None
     if value < minimum:
-        raise DelegationConfigError(f"{name} 不能小于 {minimum:g}，当前为 {value}。")
+        raise DelegationConfigError(tr("{0} 不能小于 {1:g}，当前为 {2}。", name, minimum, value))
     if maximum is not None and value > maximum:
-        raise DelegationConfigError(f"{name} 不能大于 {maximum:g}，当前为 {value}。")
+        raise DelegationConfigError(tr("{0} 不能大于 {1:g}，当前为 {2}。", name, maximum, value))
     return value

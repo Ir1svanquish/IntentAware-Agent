@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from intentaware.localization import tr
 from intentaware.contracts import Source
 
 
@@ -28,11 +29,11 @@ class DelegationDraft:
         expected = self.expected_output.strip()
         if not scope and not expected:
             return question
-        lines = [f"问题：{question}"]
+        lines = [tr("问题：{0}", question)]
         if scope:
-            lines.append(f"处理范围：{scope}")
+            lines.append(tr("处理范围：{0}", scope))
         if expected:
-            lines.append(f"期望输出：{expected}")
+            lines.append(tr("期望输出：{0}", expected))
         return "\n".join(lines)
 
     @classmethod
@@ -40,7 +41,7 @@ class DelegationDraft:
         """兼容纯文本问题与结构化委托请求文本。"""
         cleaned = text.strip()
         if not cleaned:
-            raise ValueError("委托问题不能为空。")
+            raise ValueError(tr("委托问题不能为空。"))
 
         fields: dict[str, str] = {}
         current_key: str | None = None
@@ -51,6 +52,9 @@ class DelegationDraft:
             "处理范围:": "scope",
             "期望输出：": "expected_output",
             "期望输出:": "expected_output",
+            "Question:": "question",
+            "Scope:": "scope",
+            "Expected output:": "expected_output",
         }
         for raw_line in cleaned.splitlines():
             line = raw_line.strip()

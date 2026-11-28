@@ -54,12 +54,12 @@ def load_delegation_samples(path: str | Path) -> list[dict]:
 
 
 def _extract_unresolved(answer: str) -> str:
-    marker = "未解决的部分"
-    if marker not in answer:
-        return ""
-    section = answer.split(marker, 1)[1].partition("\n")[2].split("\n\n", 1)[0]
-    lines = [line.lstrip("- ").strip() for line in section.splitlines() if line.strip()]
-    return "；".join(lines[:3])
+    for marker, separator in (("未解决的部分", "；"), ("Open questions (suggested by the model)", "; ")):
+        if marker in answer:
+            section = answer.split(marker, 1)[1].partition("\n")[2].split("\n\n", 1)[0]
+            lines = [line.lstrip("- ").strip() for line in section.splitlines() if line.strip()]
+            return separator.join(lines[:3])
+    return ""
 
 
 def evaluate(delegator, samples: Sequence[Mapping[str, object]]) -> dict:

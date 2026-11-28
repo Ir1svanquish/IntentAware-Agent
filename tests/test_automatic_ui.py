@@ -4,10 +4,15 @@ import time
 
 import pytest
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog
 
+from experiments.analyze_events import load_events, resume_times
+from experiments.check_events import check_events
+from intentaware.activity.demo import DemoObserver
 from intentaware.activity.models import ActivitySnapshot, CaptureResult
 from intentaware.activity.monitor import TaskMonitor
+from intentaware.contracts import ActivityLabel, JobStatus
+from intentaware.delegation.demo import DEMO_QUESTION, DemoDelegator
 from intentaware.memory.store import SQLiteStore
 from intentaware.nlp.local import LocalActivityClassifier
 from intentaware.session import DesktopSession
@@ -65,6 +70,80 @@ def test_observations_update_without_editing_or_analyze_click(automatic_window):
     assert "访谈记录.docx" in window.window_title_label.text()
     assert "Microsoft Word" in window.activity_source.text()
     assert session.goal.title == "撰写「研究报告」"
+
+
+def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, monkeypatch):
+    data_path = tmp_path / "demo.sqlite3"
+    export_path = tmp_path / "events-demo.jsonl"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(export_path), "JSONL"))
+    session = DesktopSession(
+        SQLiteStore(data_path), delegator=DemoDelegator(delay_seconds=0, reference_sample=True),
+        demo_mode=True,
+    )
+    monitor = TaskMonitor(session, DemoObserver(), stable_seconds=0)
+    window = MainWindow(session, monitor=monitor, demo=True)
+    window.show()
+    try:
+        wait_until(lambda: session.goal is not None and session.classification is not None)
+        assert "IntentAware-Agent" in session.goal.title
+        goal_id = session.goal.id
+
+        window.experiment_nav.click()
+        window.sample_button.click()
+        window.save_goal_button.click()
+        assert session.goal.id == goal_id
+        assert session.progress.note == "已实现参数解析"
+        wait_until(lambda: not session.analysis_pending)
+        window.analyze_button.click()
+        window.experiment_nav.click()
+        wait_until(lambda: session.classification is not None
+                   and session.classification.label == ActivityLabel.OPTIONAL_EXPLORATION)
+        assert not any(e.name == "distraction_prompted" for e in session.events)
+        window.workbench_nav.click()
+        wait_until(lambda: any(e.name == "distraction_prompted" for e in session.events))
+        window.manual_detour_button.click()
+        assert len(session.detours) == 1
+
+        window.delegation_nav.click()
+        assert window.question_input.text() == DEMO_QUESTION
+        window.formulate_button.click()
+        assert not session.jobs
+        window.confirm_draft_button.click()
+        wait_until(lambda: bool(session.jobs) and session.jobs[0].status == JobStatus.READY)
+        assert "required=" not in window.job_result.toPlainText()
+
+        window.detours_nav.click()
+        window.resume_button.click()
+        assert session.goal.next_step in window.resume_label.text()
+        assert not any(e.name == "effective_edit" for e in session.events)
+        window.experiment_nav.click()
+        window.effective_edit_button.click()
+
+        window.delegation_nav.click()
+        window.checkpoint_button.click()
+        assert session.jobs[0].status == JobStatus.DELIVERED
+        assert "required=" in window.job_result.toPlainText()
+        assert "docs.python.org" in window.job_result.toPlainText()
+        window.experiment_nav.click()
+        window.export_button.click()
+        rows = load_events(export_path)
+        assert rows[0]["details"]["observation_mode"] == "demo"
+        assert [row["goal_id"] for row in rows
+                if row["name"] in ("distraction_prompted", "effective_edit")] == [goal_id, goal_id]
+        assert check_events(export_path).error_count == 0
+        assert check_events(export_path).warning_count == 0
+        assert resume_times(rows)["measured"]["n"] == 1
+        assert DEMO_QUESTION not in export_path.read_text(encoding="utf-8")
+    finally:
+        window.close()
+
+    restored = DesktopSession(SQLiteStore(data_path))
+    try:
+        assert restored.goal.id == goal_id
+        assert restored.progress.note == "已实现参数解析"
+        assert len(restored.detours) == 1
+    finally:
+        restored.close()
 
 
 def test_polling_preserves_an_open_correction_draft(automatic_window):

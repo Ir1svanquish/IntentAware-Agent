@@ -2,6 +2,8 @@ Language / 语言：[简体中文](README.md) | **English**
 
 # IntentAware-Agent
 
+[MVP demo and one-minute talk track](docs/MVP_DEMO.md)
+
 **HKU COMP7607 · Natural Language Processing · Group 14**
 
 A desktop task workbench that uses the foreground application and window title to infer your current task and activity. Review the result and correct it when needed. Recognition runs locally and does not read page or document contents.

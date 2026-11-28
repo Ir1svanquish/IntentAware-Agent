@@ -9,7 +9,7 @@
 
 研究者需在受控研究中显式记录这两个事件：
     session.record_event("distraction_prompted", {"source": "optional_exploration"})
-    session.record_event("effective_edit", {"source": "goal_correction"})
+    session.record_effective_edit()
 """
 
 from __future__ import annotations

@@ -20,6 +20,8 @@ py -3 -m venv .venv
 
 安装 Python 后，也可双击 [start.bat](start.bat) 以自动识别模式启动。首次安装依赖需联网，之后可离线运行。
 
+[MVP 演示与一分钟英文讲稿](docs/MVP_DEMO.md)
+
 **macOS / Linux**
 
 ```bash

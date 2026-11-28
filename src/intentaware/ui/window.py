@@ -20,6 +20,7 @@ from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobSt
 from intentaware.delegation import (
     DelegationDraft, DelegationError, LiveDelegator, LlmRequestFormulator, LocalRequestFormulator,
 )
+from intentaware.delegation.demo import DEMO_QUESTION
 from intentaware.memory.resume import recovery_key, recovery_text
 from intentaware.nlp import LlmActivityClassifier, NlpError
 
@@ -59,6 +60,7 @@ EVENT_NAMES = {
     "session_started": "开始运行", "session_ended": "结束运行", "goal_saved": "保存主任务",
     "analysis_requested": "开始判断活动", "activity_classified": "完成活动判断",
     "analysis_failed": "活动判断失败", "detour_saved": "暂存支线", "detour_removed": "移除支线",
+    "distraction_prompted": "显示支线提示", "effective_edit": "确认有效主任务编辑",
     "resume_requested": "恢复主任务", "delegation_submitted": "提交委托",
     "delegation_completed": "完成委托", "delegation_delivered": "交付答案",
     "delegation_failed": "委托失败", "delegation_cancelled": "取消委托",
@@ -183,6 +185,8 @@ class MainWindow(QMainWindow):
         )
         self._draft_future: Future[DelegationDraft] | None = None
         self._analyzed_activity: str | None = None
+        self._distraction_prompt = None
+        self._recorded_distraction_prompt = None
         self._manual_observation_key: tuple[str, str] | None = None
         self._editing_goal = False
         self._exclusions_dirty = False
@@ -681,6 +685,9 @@ class MainWindow(QMainWindow):
         header.addWidget(self.export_button)
         events.addLayout(header)
         events.addWidget(_label("本地事件记录 · 时间为 UTC", "muted"))
+        self.effective_edit_button = _button("记录有效主任务编辑", self._record_effective_edit)
+        self.effective_edit_button.setToolTip("研究者实际观察到参与者继续编辑主任务后再记录。")
+        events.addWidget(self.effective_edit_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.event_list = QListWidget()
         self.event_list.setAccessibleName("本次运行事件")
         self.event_list.setMinimumHeight(200)
@@ -793,11 +800,18 @@ class MainWindow(QMainWindow):
 
     def _fill_sample(self) -> None:
         self._edit_goal()
-        self.goal_input.setText("完成研究报告初稿")
-        self.next_step_input.setText("整理三篇文献，写出方法章节的提纲")
-        self.progress_input.setText("已确定研究问题，收集了三篇参考文献")
-        self.activity_input.setPlainText("顺便浏览了一些演示文稿模板，想保存下来以后参考。")
-        self.question_input.setText("被打断后，怎样更快地恢复当前任务？")
+        if self.demo and not self._uses_live_delegator:
+            self.goal_input.setText("完成命令行校验功能")
+            self.next_step_input.setText("补齐错误提示并运行测试")
+            self.progress_input.setText("已实现参数解析")
+            self.activity_input.setPlainText("顺便研究 argparse 的可选参数怎么设为必填。")
+            self.question_input.setText(DEMO_QUESTION)
+        else:
+            self.goal_input.setText("完成研究报告初稿")
+            self.next_step_input.setText("整理三篇文献，写出方法章节的提纲")
+            self.progress_input.setText("已确定研究问题，收集了三篇参考文献")
+            self.activity_input.setPlainText("顺便浏览了一些演示文稿模板，想保存下来以后参考。")
+            self.question_input.setText("被打断后，怎样更快地恢复当前任务？")
         self.manual_toggle.setChecked(True)
         self._toggle_manual()
         self._status("已填入示例。保存修正后，可以分析示例活动或提交离线委托。")
@@ -1161,6 +1175,9 @@ class MainWindow(QMainWindow):
         if path:
             self._perform(lambda: f"已导出 {self.session.export_events(path)} 条运行事件。")
 
+    def _record_effective_edit(self) -> None:
+        self._perform(self.session.record_effective_edit)
+
     def _refresh(self) -> None:
         memory, delegation = self.session.memory_enabled, self.session.delegation_enabled
         pending, has_goal = self.session.analysis_pending, self.session.goal is not None
@@ -1197,6 +1214,7 @@ class MainWindow(QMainWindow):
         self.confirm_draft_button.setEnabled(can_draft and self._draft is not None)
         self.checkpoint_label_input.setEnabled(delegation and has_goal)
         self.checkpoint_button.setEnabled(delegation and has_goal)
+        self.effective_edit_button.setEnabled(has_goal)
         self.detour_unavailable.setVisible(not memory)
         self.delegation_unavailable.setVisible(not delegation)
 
@@ -1218,6 +1236,9 @@ class MainWindow(QMainWindow):
         else:
             self.resume_label.setText(self.session.recovery_preview())
         self._refresh_jobs()
+        self._refresh_events()
+
+    def _refresh_events(self) -> None:
         _sync_rows(self.event_list, [
             (event.id, f"{datetime.fromisoformat(event.occurred_at):%H:%M:%S}     {event.condition.value}     "
                        f"{EVENT_NAMES.get(event.name, event.name)}")
@@ -1329,6 +1350,11 @@ class MainWindow(QMainWindow):
         result = self.session.classification
         classified_activity = getattr(self.session, "classification_activity", None) or self._analyzed_activity
         current = bool(activity and result and classified_activity == activity)
+        self._distraction_prompt = (
+            result if current and result.label == ActivityLabel.OPTIONAL_EXPLORATION else None
+        )
+        if self._distraction_prompt is None:
+            self._recorded_distraction_prompt = None
         if self.session.analysis_pending and activity:
             title, text = "正在判断关联", "正在对照当前主任务，稍后会在这里给出判断。"
         elif current:
@@ -1354,6 +1380,16 @@ class MainWindow(QMainWindow):
             manual_text = ""
         _preview(self.manual_classification_label, manual_text, 1200)
         self.manual_classification_label.setVisible(bool(manual_text))
+
+    def _record_distraction_prompt(self) -> None:
+        prompt = self._distraction_prompt
+        if (
+            prompt is not None and prompt is not self._recorded_distraction_prompt
+            and not self.isMinimized() and self.classification_title.isVisible()
+        ):
+            self.session.record_event("distraction_prompted", {"source": "optional_exploration"})
+            self._recorded_distraction_prompt = prompt
+            self._refresh_events()
 
     def _refresh_jobs(self, select: str | None = None) -> None:
         jobs = self.session.jobs if self.session.delegation_enabled else []
@@ -1396,6 +1432,7 @@ class MainWindow(QMainWindow):
                 changed = self.monitor.poll() or changed
             if changed:
                 self._refresh()
+            self._record_distraction_prompt()
             self._poll_draft()
         except UI_ERRORS as error:
             self._status(str(error), error=True)

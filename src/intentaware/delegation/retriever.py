@@ -6,11 +6,13 @@ from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import CancelledError
 from html import unescape
 from html.parser import HTMLParser
+import http.client
 import ipaddress
 import json
 import re
 import socket
 from threading import Event
+from time import monotonic
 from typing import Protocol
 from urllib import error as urlerror
 from urllib import parse as urlparse
@@ -54,7 +56,7 @@ def is_public_http_url(url: str) -> bool:
         return False
     if parsed.scheme.lower() not in ("http", "https"):
         return False
-    if parsed.username or parsed.password:
+    if parsed.username is not None or parsed.password is not None:
         return False
     host = parsed.hostname
     if not host:
@@ -66,6 +68,12 @@ def is_public_http_url(url: str) -> bool:
         ip = ipaddress.ip_address(lowered)
     except ValueError:
         return "." in lowered
+    return _is_public_ip(ip)
+
+
+def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return (
         ip.is_global
         and not ip.is_private
@@ -206,9 +214,62 @@ class _PublicRedirectHandler(urlrequest.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, target)
 
 
+def _connect_public(address, timeout: float, source_address=None):
+    host, port = address
+    deadline = monotonic() + timeout
+    endpoints = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
+    if not endpoints or any(not _is_public_ip(ipaddress.ip_address(item[4][0])) for item in endpoints):
+        raise OSError("公开检索只允许连接公网地址。")
+
+    last_error = None
+    for family, kind, proto, _, sockaddr in endpoints:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError("公开检索连接超时。")
+        conn = socket.socket(family, kind, proto)
+        try:
+            conn.settimeout(remaining)
+            if source_address is not None:
+                conn.bind(source_address)
+            conn.connect(sockaddr)
+            conn.settimeout(timeout)
+            return conn
+        except OSError as error:
+            conn.close()
+            last_error = error
+    raise last_error
+
+
+class _PublicHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_public
+
+
+class _PublicHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Keep the original hostname for TLS SNI and certificate verification.
+        self._create_connection = _connect_public
+
+
+class _PublicHTTPHandler(urlrequest.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PublicHTTPConnection, req)
+
+
+class _PublicHTTPSHandler(urlrequest.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PublicHTTPSConnection, req)
+
+
 def _default_http_get(url: str, headers: Mapping[str, str], timeout: float) -> tuple[bytes, str]:
+    if not is_public_http_url(url):
+        raise urlerror.URLError("公开检索只允许请求公开 HTTP(S) 地址。")
     req = urlrequest.Request(url, headers=dict(headers), method="GET")
-    opener = urlrequest.build_opener(_PublicRedirectHandler())
+    opener = urlrequest.build_opener(
+        urlrequest.ProxyHandler({}), _PublicHTTPHandler(), _PublicHTTPSHandler(), _PublicRedirectHandler()
+    )
     with opener.open(req, timeout=timeout) as resp:
         data = resp.read(_MAX_FETCH_BYTES)
         content_type = resp.headers.get("Content-Type", "")
@@ -414,17 +475,17 @@ class PublicWebRetriever:
                 continue
             seen_urls.add(normalized)
             candidates.append(hit)
+            if len(candidates) == limit:
+                break
 
         documents: list[RetrievedDocument] = []
         for hit in candidates:
-            if len(documents) >= limit:
-                break
             _check_cancel(cancel)
             doc = self._fetch_document(hit, source_id=f"S{len(documents) + 1}")
             _check_cancel(cancel)
             if doc is not None:
                 documents.append(doc)
-        return documents[:limit]
+        return documents
 
     def _search_hits(self, query: str, *, limit: int, cancel: Event | None) -> list[SearchHit]:
         primary_error: Exception | None = None
@@ -480,14 +541,12 @@ class PublicWebRetriever:
                 )
                 title = title or parsed_title or hit.url
                 excerpt = parsed_body
-            else:
+            elif content_type.lower().startswith("text/"):
                 cleaned = re.sub(r"\s+", " ", text).strip()
                 excerpt = cleaned[: self.config.max_excerpt_chars]
         except (urlerror.HTTPError, urlerror.URLError, TimeoutError, socket.timeout, OSError):
             excerpt = ""
 
-        if not excerpt:
-            excerpt = hit.snippet.strip()[: self.config.max_excerpt_chars]
         if not excerpt or not title:
             return None
         return RetrievedDocument(

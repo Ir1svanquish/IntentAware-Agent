@@ -1,6 +1,6 @@
 # D 异步委托与延迟交付
 
-[`demo.py`](demo.py) 的 `DemoDelegator` 保留用于离线默认模式；完整实现位于本目录其余模块，实现请求整理、最多两份公开来源检索、基于证据作答与引用核验。
+[`demo.py`](demo.py) 提供默认的离线演示。联网模式支持后台整理请求、抓取最多两份候选公开来源，并展示可在网页正文中核对的原文摘录。
 
 ## 模块结构
 
@@ -12,7 +12,7 @@
 | [`prompts.py`](prompts.py) / [`prompts/`](prompts) | 版本化 Markdown Prompt（`formulate_v1`、`answer_v1`） |
 | [`formulator.py`](formulator.py) | `LocalRequestFormulator` 与 `LlmRequestFormulator`：生成可编辑请求并硬限最多一次澄清 |
 | [`retriever.py`](retriever.py) | `PublicWebRetriever`（免 Key DuckDuckGo + Wikipedia 兜底，或 Tavily）与 `MockRetriever` |
-| [`verifier.py`](verifier.py) | `CitationVerifier`：白名单 + 原文支撑校验，拦截模型幻觉引用 |
+| [`verifier.py`](verifier.py) | `CitationVerifier`：在已抓取的网页正文中逐字核对每条摘录 |
 | [`agent.py`](agent.py) | `LiveDelegator`：实现 `Delegator.run(question, cancel)`，按次隔离并发统计 |
 | [`evaluate.py`](evaluate.py) | 批量运行留出委托样本并导出供双人复核的评估 CSV |
 
@@ -25,12 +25,16 @@
 | `INTENTAWARE_SEARCH_PROVIDER` | `public` | `public`（免 Key：DuckDuckGo + Wikipedia 兜底）或 `tavily` |
 | `INTENTAWARE_SEARCH_API_KEY` | 空 | 使用 `tavily` 时必填 |
 | `INTENTAWARE_SEARCH_BASE_URL` | 空 | 可选自定义 Tavily 端点 |
-| `INTENTAWARE_DELEGATION_MAX_SOURCES` | `2` | 每次委托最多检索的公开来源数（硬限 `1..2`） |
+| `INTENTAWARE_DELEGATION_MAX_SOURCES` | `2` | 每次委托最多尝试抓取的候选网页数，抓取失败也计入（`1..2`） |
 | `INTENTAWARE_DELEGATION_SEARCH_TIMEOUT` | `8.0` | 搜索请求超时秒数 |
 | `INTENTAWARE_DELEGATION_FETCH_TIMEOUT` | `8.0` | 单页抓取超时秒数 |
 | `INTENTAWARE_DELEGATION_MAX_EXCERPT_CHARS` | `2500` | 单份来源正文摘录最大字符数 |
 
 ## 运行与评测
+
+在桌面端点「用模型整理」会把当前输入的问题发给配置的模型。补充澄清也会发给模型。确认编辑后的委托才会开始搜索，主任务标题和窗口观察不会自动随委托发送。
+
+网页抓取直接连接经过校验的公网地址，并检查每次重定向。这个抓取流程需要直连公网。只在搜索结果里出现的摘要不能作为核验依据。答案区域展示带来源编号的已核对摘录，待核对问题单独标注为模型整理。
 
 ```bash
 # 桌面端启用真实公开检索 + LLM 异步委托

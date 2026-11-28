@@ -84,10 +84,12 @@ def main(argv: list[str] | None = None) -> int:
         QMessageBox.information(
             None,
             "实时异步委托已启用",
-            "用户确认提交的委托问题与备注将发送到：\n"
-            f"检索提供方：{delegation_config.search_provider}（最多 {delegation_config.max_sources} 份公开来源）\n"
-            f"模型端点：{llm_config.base_url}（模型：{llm_config.model}）\n\n"
-            "窗口观察和本地数据库历史不会自动发送。",
+            f"模型端点：{llm_config.base_url}（模型：{llm_config.model}）\n"
+            "用模型整理时会发送输入的问题及补充的澄清。\n"
+            f"确认委托后，问题才会发给检索提供方 {delegation_config.search_provider}，"
+            f"最多抓取 {delegation_config.max_sources} 份候选来源。\n"
+            "经确认的委托内容和网页摘录会发给模型。"
+            "委托流程不会自动读取主任务标题、窗口观察或数据库历史。",
         )
 
     data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())

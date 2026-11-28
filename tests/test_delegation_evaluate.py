@@ -20,23 +20,19 @@ def test_delegation_evaluate_cli_writes_json_and_csv(tmp_path, capsys):
     )
 
     class StubDelegator:
-        def __init__(self):
-            self._metrics = {}
-
-        def run(self, question, cancel):
+        def run_with_metrics(self, question, cancel):
             if "失败" in question:
                 raise RuntimeError("模拟检索失败")
-            self._metrics[question] = {
+            metrics = {
                 "latency_ms": 120.0,
                 "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
             }
-            return DelegationResult(
-                answer="Macro-F1 对各类别平等求平均。\n\n未解决的部分\n- 未讨论极度不平衡样本下的方差。",
+            result = DelegationResult(
+                answer="Macro-F1 对各类别平等求平均。\n\n未解决的部分（模型整理）\n- 未讨论极度不平衡样本下的方差。",
                 sources=(Source("Scikit-learn Metrics", "https://scikit-learn.org/stable/modules/model_evaluation.html"),),
             )
 
-        def pop_job_metrics(self, question):
-            return self._metrics.pop(question, {})
+            return result, metrics
 
     out_csv = tmp_path / "eval.csv"
     exit_code = main(
@@ -62,6 +58,7 @@ def test_delegation_evaluate_cli_writes_json_and_csv(tmp_path, capsys):
     assert rows[0]["answer_quality_1_5"] == ""
     assert rows[0]["evaluator"] == ""
     assert "方差" in rows[0]["unresolved_points"]
+    assert "模型整理" not in rows[0]["unresolved_points"]
 
 
 def test_extract_unresolved_excludes_verification_section():

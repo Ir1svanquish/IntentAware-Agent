@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Callable, Mapping
 from concurrent.futures import CancelledError
+from contextlib import nullcontext
 from threading import Event, Lock
 import time
 
 from intentaware.contracts import DelegationResult
 from intentaware.nlp.config import LlmConfig
 from intentaware.nlp.errors import NlpError, NlpResponseError, NlpTimeoutError, NlpTransportError
-from intentaware.nlp.fields import text_field
 from intentaware.nlp.llm import OpenAICompatibleClient
 
 from .config import DelegationConfig
@@ -29,9 +28,8 @@ from .verifier import CitationVerifier
 
 ANSWER_SCHEMA = {
     "type": "object",
-    "required": ["answer", "citations", "unresolved"],
+    "required": ["citations", "unresolved"],
     "properties": {
-        "answer": {"type": "string", "minLength": 2},
         "citations": {
             "type": "array",
             "items": {
@@ -54,6 +52,13 @@ ANSWER_SCHEMA = {
 def _check_cancel(cancel: Event) -> None:
     if cancel.is_set():
         raise CancelledError("委托任务已取消。")
+
+
+def run_delegation(delegator, question: str, cancel: Event) -> tuple[DelegationResult, dict]:
+    run_with_metrics = getattr(delegator, "run_with_metrics", None)
+    if callable(run_with_metrics):
+        return run_with_metrics(question, cancel)
+    return delegator.run(question, cancel), {}
 
 
 def _format_sources_block(documents: list[RetrievedDocument]) -> str:
@@ -84,9 +89,7 @@ class LiveDelegator:
         self.config = config or DelegationConfig()
         self.prompt = prompt or load_prompt("answer_v1")
         self.verifier = verifier or CitationVerifier()
-        self._lock = Lock()
-        self._metrics_by_question: dict[str, deque[dict[str, object]]] = {}
-        self._last_metrics: dict[str, object] = {}
+        self._client_lock = nullcontext() if isinstance(llm, LlmConfig) or callable(llm) else Lock()
 
         if isinstance(llm, LlmConfig):
             model_name = llm.model
@@ -106,29 +109,6 @@ class LiveDelegator:
         """静态配置摘要，供会话启动及事件记录使用。"""
         return dict(self._metadata)
 
-    @property
-    def last_metrics(self) -> dict[str, object]:
-        with self._lock:
-            return dict(self._last_metrics)
-
-    def peek_job_metrics(self, question: str) -> dict[str, object]:
-        """按问题文本读取该次执行的延迟、Token 与来源数，不移除缓存。"""
-        with self._lock:
-            queue = self._metrics_by_question.get(question.strip())
-            return dict(queue[0]) if queue else {}
-
-    def pop_job_metrics(self, question: str) -> dict[str, object]:
-        """按问题文本取出该次执行的延迟、Token 与来源数，线程安全（FIFO）。"""
-        key = question.strip()
-        with self._lock:
-            queue = self._metrics_by_question.get(key)
-            if not queue:
-                return {}
-            metrics = dict(queue.popleft())
-            if not queue:
-                self._metrics_by_question.pop(key, None)
-            return metrics
-
     def _new_client(self):
         if isinstance(self._llm, LlmConfig):
             return OpenAICompatibleClient(self._llm)
@@ -137,6 +117,10 @@ class LiveDelegator:
         return self._llm
 
     def run(self, question: str, cancel: Event) -> DelegationResult:
+        result, _ = self.run_with_metrics(question, cancel)
+        return result
+
+    def run_with_metrics(self, question: str, cancel: Event) -> tuple[DelegationResult, dict]:
         _check_cancel(cancel)
         draft = DelegationDraft.parse_question(question)
         started = time.perf_counter()
@@ -147,7 +131,7 @@ class LiveDelegator:
             cancel=cancel,
         )
         _check_cancel(cancel)
-        docs = docs[:2]
+        docs = docs[:min(self.config.max_sources, 2)]
         if not docs:
             raise DelegationRetrievalError("未检索到相关的公开来源，暂不生成无依据回答。")
 
@@ -162,9 +146,13 @@ class LiveDelegator:
 
         client = self._new_client()
         try:
-            payload = client.complete_json(system=system, user=user, schema=ANSWER_SCHEMA)
+            with self._client_lock:
+                _check_cancel(cancel)
+                payload = client.complete_json(system=system, user=user, schema=ANSWER_SCHEMA)
+                last_usage = getattr(client, "last_usage", None)
+                usage = dict(last_usage) if isinstance(last_usage, dict) else {}
             _check_cancel(cancel)
-            answer_body, citations, unresolved = self._parse_payload(payload)
+            citations, unresolved = self._parse_payload(payload)
         except NlpTimeoutError as exc:
             raise DelegationTimeoutError(str(exc)) from None
         except NlpTransportError as exc:
@@ -175,18 +163,21 @@ class LiveDelegator:
         if not report.passed:
             raise DelegationVerificationError("回答引用未通过公开来源核验，已拦截无依据输出。")
 
-        sections = [answer_body]
+        source_numbers = {source.url: index for index, source in enumerate(report.verified_sources, start=1)}
+        document_urls = {doc.source_id: doc.url for doc in docs}
+        excerpts = "\n".join(
+            f"- [来源 {source_numbers[document_urls[quote.source_id]]}] {quote.quote}"
+            for quote in report.verified_quotes
+        )
+        sections = [f"已核对的原文摘录\n{excerpts}"]
         if unresolved:
             unresolved_lines = "\n".join(f"- {item}" for item in unresolved)
-            sections.append(f"未解决的部分\n{unresolved_lines}")
-        else:
-            sections.append("未解决的部分\n- 当前检索到的有限公开来源已覆盖主要问题；如需更深入场景可继续补充条件。")
+            sections.append(f"未解决的部分（模型整理）\n{unresolved_lines}")
 
         if report.dropped_reasons:
             sections.append(f"引用核验说明\n- 已过滤 {len(report.dropped_reasons)} 条未能核实的引用。")
 
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
-        usage = getattr(client, "last_usage", None)
         metrics: dict[str, object] = {
             "latency_ms": latency_ms,
             "sources_count": len(report.verified_sources),
@@ -195,33 +186,23 @@ class LiveDelegator:
             "prompt": self.prompt.version,
             "model": getattr(client, "model", self._metadata["model"]),
         }
-        if isinstance(usage, dict) and usage:
-            metrics["usage"] = dict(usage)
-
-        with self._lock:
-            self._last_metrics = metrics
-            key = question.strip()
-            queue = self._metrics_by_question.setdefault(key, deque())
-            queue.append(metrics)
-            while len(self._metrics_by_question) > 64:
-                oldest_key = next(iter(self._metrics_by_question))
-                self._metrics_by_question.pop(oldest_key, None)
+        if usage:
+            metrics["usage"] = usage
 
         return DelegationResult(
             answer="\n\n".join(sections),
             sources=report.verified_sources,
-        )
+        ), metrics
 
     @staticmethod
     def _parse_payload(
         payload: Mapping[str, object],
-    ) -> tuple[str, list[CitationClaim], list[str]]:
-        answer = text_field(payload.get("answer"), "answer", limit=1200)
+    ) -> tuple[list[CitationClaim], list[str]]:
         raw_citations = payload.get("citations")
         if not isinstance(raw_citations, list):
             raise NlpResponseError("模型返回的 citations 必须是数组。")
         citations: list[CitationClaim] = []
-        for item in raw_citations:
+        for item in raw_citations[:4]:
             if not isinstance(item, dict):
                 continue
             source_id = str(item.get("source_id") or "").strip()
@@ -237,4 +218,4 @@ class LiveDelegator:
             for item in raw_unresolved
             if isinstance(item, str) and item.strip()
         ]
-        return answer, citations, unresolved
+        return citations, unresolved

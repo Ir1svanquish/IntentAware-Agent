@@ -89,9 +89,11 @@ session = DesktopSession(
 当前默认委托执行器是离线示例；可用 `--delegator live` 启用公开来源检索与 LLM 解答（详情见 [`delegation/README.md`](../src/intentaware/delegation/README.md)）。活动分类默认使用本地规则，也可以显式切换到 LLM。接入真实检索后，界面会切换模式提示并在事件中记录模型、Prompt 版本、来源数与耗时。不要把标题分类结果写成用户已完成的进度。
 
 ```bash
-# 启用实时异步委托（最多检索两份公开来源）
+# 启用实时异步委托
 INTENTAWARE_LLM_API_KEY=... python -m intentaware --delegator live
 ```
+
+「用模型整理」会把输入的问题发给配置的模型，也可以补充一次澄清。后台整理时可继续操作工作台。编辑草稿并确认后才开始检索。应用会尝试获取最多两份公开来源，并展示能在原文核对的摘录。委托不会自动发送主任务标题、窗口观察或数据库历史。
 
 ### LLM 分类（可选）
 

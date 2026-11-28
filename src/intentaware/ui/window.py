@@ -1,6 +1,7 @@
 """Task-first Qt workbench; observations and session updates stay on the UI thread."""
 
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from html import escape
 import re
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from intentaware.contracts import ActivityLabel, Condition, DelegationJob, JobStatus
 from intentaware.delegation import (
-    DelegationDraft, DelegationError, LiveDelegator, LocalRequestFormulator,
+    DelegationDraft, DelegationError, LiveDelegator, LlmRequestFormulator, LocalRequestFormulator,
 )
 from intentaware.memory.resume import recovery_key, recovery_text
 from intentaware.nlp import LlmActivityClassifier, NlpError
@@ -176,6 +177,11 @@ class MainWindow(QMainWindow):
         self.formulator = formulator if formulator is not None else LocalRequestFormulator()
         self._uses_llm = isinstance(session.classifier, LlmActivityClassifier)
         self._uses_live_delegator = isinstance(session.delegator, LiveDelegator)
+        self._draft_executor = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="delegation-draft")
+            if isinstance(self.formulator, LlmRequestFormulator) else None
+        )
+        self._draft_future: Future[DelegationDraft] | None = None
         self._analyzed_activity: str | None = None
         self._manual_observation_key: tuple[str, str] | None = None
         self._editing_goal = False
@@ -557,21 +563,29 @@ class MainWindow(QMainWindow):
         heading.addWidget(self.delegation_badge)
         delegation.addLayout(heading)
         self.delegation_mode_hint = _label(
-            "后台最多检索两份公开来源并核验引用，可先整理确认再提交。"
+            "先整理可编辑请求，确认后再检索最多两份公开来源。"
             if self._uses_live_delegator
             else "当前使用离线示例回答，用于验证委托与交付流程。",
             "muted",
             wrap=True,
         )
         delegation.addWidget(self.delegation_mode_hint)
+        if self._draft_executor is not None:
+            delegation.addWidget(_label(
+                "点击「用模型整理」或按回车会向配置的模型发送输入的问题。补充澄清时也会发送所填内容。",
+                "muted", wrap=True,
+            ))
         controls = QHBoxLayout()
         self.question_input = QLineEdit(placeholderText="例如：被打断后，怎样更快恢复当前任务？")
         self.question_input.setAccessibleName("委托问题")
         self.question_input.returnPressed.connect(self._submit)
         controls.addWidget(self.question_input, 1)
-        self.formulate_button = _button("整理请求", self._formulate)
+        self.formulate_button = _button(
+            "用模型整理" if self._draft_executor is not None else "整理请求", self._formulate
+        )
         controls.addWidget(self.formulate_button)
         self.submit_button = _button("提交委托", self._submit, primary=True)
+        self.submit_button.setVisible(not self._uses_live_delegator)
         controls.addWidget(self.submit_button)
         delegation.addLayout(controls)
 
@@ -598,7 +612,10 @@ class MainWindow(QMainWindow):
         self.clarification_input = QLineEdit(placeholderText="补充澄清说明（最多一次，也可直接确认提交）")
         self.clarification_input.setAccessibleName("澄清说明")
         clarify_row.addWidget(self.clarification_input, 1)
-        self.apply_clarification_button = _button("补充并重新整理", self._apply_clarification)
+        self.apply_clarification_button = _button(
+            "发送澄清并重新整理" if self._draft_executor is not None else "补充并重新整理",
+            self._apply_clarification,
+        )
         clarify_row.addWidget(self.apply_clarification_button)
         clarify_layout.addLayout(clarify_row)
         self.clarification_box.hide()
@@ -606,7 +623,9 @@ class MainWindow(QMainWindow):
 
         draft_actions = QHBoxLayout()
         self.confirm_draft_button = _button("确认并提交委托", self._confirm_draft, primary=True)
-        self.cancel_draft_button = _button("取消整理", self._cancel_draft, quiet=True)
+        self.cancel_draft_button = _button(
+            "取消整理", lambda: self._perform(self._cancel_draft), quiet=True
+        )
         draft_actions.addWidget(self.confirm_draft_button)
         draft_actions.addWidget(self.cancel_draft_button)
         draft_actions.addStretch()
@@ -992,17 +1011,17 @@ class MainWindow(QMainWindow):
         self._perform(toggle)
 
     def _submit(self) -> None:
+        if self._uses_live_delegator:
+            self._formulate()
+            return
+
         def submit() -> str:
             job = self.session.submit_delegation(self.question_input.text())
             self.question_input.clear()
             self._cancel_draft()
             self._show_page(DELEGATION)
             self._refresh_jobs(job.id)
-            return (
-                "已提交异步委托，后台正在检索公开来源，可继续处理主任务。"
-                if self._uses_live_delegator
-                else "已提交离线演示委托，后台处理期间可以继续工作。"
-            )
+            return "已提交离线演示委托，后台处理期间可以继续工作。"
         self._perform(submit)
 
     def _apply_draft(self, draft: DelegationDraft) -> None:
@@ -1022,51 +1041,56 @@ class MainWindow(QMainWindow):
         self.draft_editor.show()
 
     def _formulate(self) -> None:
-        def formulate() -> str:
-            if not self.session.delegation_enabled or self.session.goal is None:
-                raise ValueError("请先设置主任务并在 I 或 D 条件下整理委托。")
-            draft = self.formulator.draft(
-                self.question_input.text(),
-                goal_title=self.session.goal.title,
-                clarification_round=0,
-            )
-            self._apply_draft(draft)
-            self._show_page(DELEGATION)
-            return (
-                "已整理委托请求，可补充一次澄清或编辑后确认提交。"
-                if draft.needs_clarification
-                else "已整理为可编辑委托请求，核对范围和期望输出后即可提交。"
-            )
-        self._perform(formulate)
+        self._perform(lambda: self._prepare_draft(self.question_input.text()))
+
+    def _prepare_draft(self, question: str, clarification: str = "") -> str:
+        goal = self.session.goal
+        if not self.session.delegation_enabled or goal is None:
+            raise ValueError("请先设置主任务并在 I 或 D 条件下整理委托。")
+        if not question.strip():
+            raise ValueError("请输入需要委托的问题。")
+        if self._draft_future is not None:
+            raise ValueError("正在整理委托请求。")
+        self._show_page(DELEGATION)
+        kwargs = {
+            "goal_title": goal.title if not self._uses_live_delegator and self._draft_executor is None else "",
+            "clarification_answer": clarification,
+            "clarification_round": int(bool(clarification)),
+        }
+        if self._draft_executor is not None:
+            self._draft_goal_id = goal.id
+            self._draft_future = self._draft_executor.submit(self.formulator.draft, question, **kwargs)
+            self.draft_editor.show()
+            return "正在后台整理委托请求，可以继续处理主任务。"
+        self._apply_draft(self.formulator.draft(question, **kwargs))
+        return "已整理委托请求，可编辑后确认。"
 
     def _apply_clarification(self) -> None:
         def apply_clarify() -> str:
-            if self._draft is None or self.session.goal is None:
+            if self._draft is None or not self._draft.needs_clarification:
                 raise ValueError("当前没有正在整理的委托请求。")
             answer = self.clarification_input.text().strip()
             if not answer:
                 raise ValueError("请先填写澄清说明，或直接点击“确认并提交委托”。")
-            draft = self.formulator.draft(
+            return self._prepare_draft(
                 self.draft_question_input.text() or self._draft.raw_question,
-                goal_title=self.session.goal.title,
-                clarification_answer=answer,
-                clarification_round=1,
+                answer,
             )
-            self._apply_draft(draft)
-            return "已结合澄清补充更新委托请求，请核对后提交。"
         self._perform(apply_clarify)
 
     def _confirm_draft(self) -> None:
         def confirm() -> str:
+            if self._draft is None or self._draft_future is not None:
+                raise ValueError("请等待委托请求整理完成。")
             question = self.draft_question_input.text().strip()
             if not question:
                 raise ValueError("明确问题不能为空。")
             draft = DelegationDraft(
-                raw_question=self._draft.raw_question if self._draft else question,
+                raw_question=self._draft.raw_question,
                 question=question,
                 scope=self.draft_scope_input.text().strip(),
                 expected_output=self.draft_output_input.text().strip(),
-                clarification_round=self._draft.clarification_round if self._draft else 0,
+                clarification_round=self._draft.clarification_round,
             )
             job = self.session.submit_delegation(draft.format_question())
             self.question_input.clear()
@@ -1081,6 +1105,9 @@ class MainWindow(QMainWindow):
         self._perform(confirm)
 
     def _cancel_draft(self) -> None:
+        if self._draft_future is not None:
+            self._draft_future.cancel()
+            self._draft_future = None
         self._draft = None
         self._draft_goal_id = None
         if hasattr(self, "draft_editor"):
@@ -1090,6 +1117,26 @@ class MainWindow(QMainWindow):
             self.clarification_input.clear()
             self.clarification_box.hide()
             self.draft_editor.hide()
+
+    def _poll_draft(self) -> None:
+        future = self._draft_future
+        if future is None or not future.done():
+            return
+        goal = self.session.goal
+        if goal is None or goal.id != self._draft_goal_id or not self.session.delegation_enabled:
+            self._cancel_draft()
+            self._refresh()
+            return
+        self._draft_future = None
+        try:
+            self._apply_draft(future.result())
+        except UI_ERRORS as error:
+            if self._draft is None:
+                self._cancel_draft()
+            self._status(str(error), error=True)
+        else:
+            self._status("已整理委托请求，可编辑后确认。")
+        self._refresh()
 
     def _checkpoint(self) -> None:
         def checkpoint() -> str:
@@ -1135,15 +1182,21 @@ class MainWindow(QMainWindow):
         self.ignore_recovery_button.setEnabled(memory and has_goal)
         self.pause_recovery_button.setEnabled(memory and has_goal)
         self.pause_recovery_button.setText("开启恢复提示" if self.session.recovery_paused else "暂停恢复提示")
-        self.question_input.setEnabled(delegation and has_goal)
-        self.formulate_button.setEnabled(delegation and has_goal)
-        self.submit_button.setEnabled(delegation and has_goal)
-        self.checkpoint_label_input.setEnabled(delegation and has_goal)
-        self.checkpoint_button.setEnabled(delegation and has_goal)
         if self._draft_goal_id and (
             not delegation or not has_goal or self.session.goal.id != self._draft_goal_id
         ):
             self._cancel_draft()
+        drafting = self._draft_future is not None
+        can_draft = delegation and has_goal and not drafting
+        self.question_input.setEnabled(can_draft)
+        self.formulate_button.setEnabled(can_draft)
+        self.submit_button.setEnabled(can_draft and not self._uses_live_delegator)
+        for field in (self.draft_question_input, self.draft_scope_input, self.draft_output_input,
+                      self.clarification_input, self.apply_clarification_button):
+            field.setEnabled(can_draft)
+        self.confirm_draft_button.setEnabled(can_draft and self._draft is not None)
+        self.checkpoint_label_input.setEnabled(delegation and has_goal)
+        self.checkpoint_button.setEnabled(delegation and has_goal)
         self.detour_unavailable.setVisible(not memory)
         self.delegation_unavailable.setVisible(not delegation)
 
@@ -1325,7 +1378,10 @@ class MainWindow(QMainWindow):
         if not job:
             return ""
         if job.status == JobStatus.DELIVERED and job.result:
-            sources = "\n".join(f"{source.title}\n{source.url}" for source in job.result.sources)
+            sources = "\n".join(
+                f"[来源 {index}] {source.title}\n{source.url}"
+                for index, source in enumerate(job.result.sources, start=1)
+            )
             return f"{job.result.answer}\n\n来源\n{sources}" if sources else job.result.answer
         if job.status == JobStatus.READY:
             return "答案已就绪。到达检查点后交付，也可以提前查看。"
@@ -1340,6 +1396,7 @@ class MainWindow(QMainWindow):
                 changed = self.monitor.poll() or changed
             if changed:
                 self._refresh()
+            self._poll_draft()
         except UI_ERRORS as error:
             self._status(str(error), error=True)
 
@@ -1347,6 +1404,9 @@ class MainWindow(QMainWindow):
         if not self._closed:
             self._closed = True
             self._timer.stop()
+            self._cancel_draft()
+            if self._draft_executor is not None:
+                self._draft_executor.shutdown(wait=False, cancel_futures=True)
             try:
                 if self.monitor:
                     self.monitor.close()

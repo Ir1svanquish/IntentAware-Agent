@@ -1,13 +1,15 @@
 """桌面端委托页面交互测试（offscreen）：整理请求、1 次澄清、编辑确认、检查点交付与门控。"""
 
 import time
+from threading import Event
 
 import pytest
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from intentaware.contracts import Condition, JobStatus
-from intentaware.delegation import LiveDelegator, MockRetriever, RetrievedDocument
+from intentaware.delegation import LiveDelegator, LlmRequestFormulator, MockRetriever, RetrievedDocument
 from intentaware.memory.store import SQLiteStore
 from intentaware.nlp.llm import FakeLLMClient
 from intentaware.session import DesktopSession
@@ -90,4 +92,66 @@ def test_delegation_formulate_clarify_confirm_and_checkpoint_delivery(app, tmp_p
             for e in session.events
         )
     finally:
+        window.close()
+
+
+@pytest.mark.parametrize("condition, completion_status", [
+    (Condition.I, JobStatus.DELIVERED),
+    (Condition.D, JobStatus.READY),
+])
+def test_live_draft_stays_responsive_and_defers_search_until_confirmation(
+    app, tmp_path, condition, completion_status
+):
+    started, release = Event(), Event()
+    ticks = []
+
+    class BlockingModel(FakeLLMClient):
+        def complete_json(self, **kwargs):
+            started.set()
+            assert release.wait(4)
+            return super().complete_json(**kwargs)
+
+    draft_client = BlockingModel([{
+        "question": "When does the meeting start?",
+        "scope": "meeting schedule", "expected_output": "time", "clarification_question": "",
+    }])
+    retriever = MockRetriever([RetrievedDocument(
+        "S1", "Schedule", "https://example.org/schedule", "", "The meeting starts at 10."
+    )])
+    delegator = LiveDelegator(FakeLLMClient([{
+        "citations": [{"source_id": "S1", "quote": "The meeting starts at 10."}],
+        "unresolved": [],
+    }]), retriever)
+    session = DesktopSession(
+        SQLiteStore(tmp_path / "live.sqlite3"), delegator=delegator, condition=condition
+    )
+    session.set_goal("private test goal", "plan the meeting")
+    window = MainWindow(session, formulator=LlmRequestFormulator(draft_client))
+    window.show()
+    try:
+        window.delegation_nav.click()
+        assert not window.submit_button.isVisible()
+        window.question_input.setText("What time is the meeting?")
+        QTimer.singleShot(20, lambda: ticks.append(True))
+        QTest.keyClick(window.question_input, Qt.Key.Key_Return)
+        _wait_until(lambda: started.is_set() and ticks)
+        assert not window.confirm_draft_button.isEnabled()
+        assert not session.jobs and not retriever.calls
+        window.workbench_nav.click()
+        release.set()
+        _wait_until(window.confirm_draft_button.isEnabled)
+        assert not session.jobs and not retriever.calls
+        assert "What time is the meeting?" in draft_client.calls[0]["user"]
+        assert "private test goal" not in draft_client.calls[0]["user"]
+
+        window.delegation_nav.click()
+        window.confirm_draft_button.click()
+        _wait_until(lambda: session.jobs[0].status == completion_status)
+        assert retriever.calls[0]["query"] == "When does the meeting start?"
+        if condition == Condition.D:
+            assert "The meeting starts at 10." not in window.job_result.toPlainText()
+            window.checkpoint_button.click()
+        assert "[来源 1] The meeting starts at 10." in window.job_result.toPlainText()
+    finally:
+        release.set()
         window.close()

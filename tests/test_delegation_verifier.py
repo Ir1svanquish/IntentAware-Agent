@@ -57,7 +57,11 @@ def test_verifier_drops_unknown_source_and_fabricated_quote():
 def test_verifier_fails_when_no_citation_is_supported():
     verifier = CitationVerifier()
     report = verifier.verify(
-        [CitationClaim("S3", "not retrieved"), CitationClaim("S1", "fabricated text")],
+        [
+            CitationClaim("S3", "not retrieved"),
+            CitationClaim("S1", "The add_argument method accepts required=False"),
+            CitationClaim("S1", "Command-line argument parsing"),
+        ],
         _docs(),
     )
     assert report.passed is False

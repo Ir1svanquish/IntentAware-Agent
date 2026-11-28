@@ -2,6 +2,7 @@
 
 from concurrent.futures import CancelledError
 import json
+import socket
 from threading import Event
 from urllib import error as urlerror
 
@@ -15,6 +16,7 @@ from intentaware.delegation import (
     MockRetriever,
     PublicWebRetriever,
     RetrievedDocument,
+    SearchHit,
     is_public_http_url,
 )
 from intentaware.delegation.retriever import extract_html_text
@@ -87,7 +89,7 @@ def test_public_retriever_duckduckgo_unwraps_urls_and_caps_at_two():
     assert "https://example.org/third" not in fetched_urls
 
 
-def test_public_retriever_falls_back_to_wikipedia_and_uses_snippet_if_page_blocked():
+def test_public_retriever_falls_back_to_wikipedia_without_using_unfetched_snippets():
     wiki_json = json.dumps(
         {
             "query": {
@@ -113,10 +115,54 @@ def test_public_retriever_falls_back_to_wikipedia_and_uses_snippet_if_page_block
     retriever = PublicWebRetriever(DelegationConfig(), http_get=fake_get)
     docs = retriever.retrieve("SQLite WAL 模式")
 
-    assert len(docs) == 1
-    assert docs[0].source_id == "S1"
-    assert "zh.wikipedia.org/wiki/" in docs[0].url
-    assert "读写并发" in docs[0].excerpt
+    assert docs == []
+
+
+def test_failed_page_fetches_count_toward_source_budget():
+    class SearchProvider:
+        def search(self, query, **kwargs):
+            return [SearchHit(f"Page {index}", f"https://example.org/{index}") for index in range(4)]
+
+    requests = []
+
+    def fetch(url, headers, timeout):
+        requests.append(url)
+        raise TimeoutError("page timed out")
+
+    retriever = PublicWebRetriever(DelegationConfig(), http_get=fetch, primary_provider=SearchProvider())
+
+    assert retriever.retrieve("reference") == []
+    assert requests == ["https://example.org/0", "https://example.org/1"]
+
+
+def test_public_connection_uses_only_validated_addresses(monkeypatch):
+    from intentaware.delegation.retriever import _connect_public
+
+    endpoints = [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443)),
+    ]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: endpoints)
+    connections = []
+
+    class FakeSocket:
+        def settimeout(self, timeout):
+            pass
+
+        def connect(self, address):
+            connections.append(address)
+
+    sock = FakeSocket()
+    monkeypatch.setattr(socket, "socket", lambda *args: sock)
+    assert _connect_public(("example.org", 443), 1) is sock
+    assert connections == [("93.184.216.34", 443)]
+
+    endpoints.append(
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("::1", 443, 0, 0))
+    )
+    connections.clear()
+    with pytest.raises(OSError, match="公网地址"):
+        _connect_public(("example.org", 443), 1)
+    assert not connections
 
 
 def test_public_retriever_raises_timeout_when_all_providers_timeout():

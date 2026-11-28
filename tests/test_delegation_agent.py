@@ -46,7 +46,7 @@ def test_live_delegator_produces_verified_answer_and_unresolved_points():
     llm = FakeLLMClient(
         [
             {
-                "answer": "使用位置参数（默认必填），或在选项参数中传入 required=True。",
+                "answer": "模型生成的未核验文本不得出现在答案中。",
                 "citations": [
                     {"source_id": "S1", "quote": "传入 required=True 即可强制要求用户提供该参数"},
                     {"source_id": "S2", "quote": "位置参数（不带短横线前缀）默认就是必填参数"},
@@ -56,14 +56,16 @@ def test_live_delegator_produces_verified_answer_and_unresolved_points():
         ]
     )
     delegator = LiveDelegator(llm, MockRetriever(_sample_docs()), config=DelegationConfig())
-    result = delegator.run("问题：Python 的 argparse 怎么设置必填参数？\n处理范围：仅看官方用法", Event())
+    result, metrics = delegator.run_with_metrics(
+        "问题：Python 的 argparse 怎么设置必填参数？\n处理范围：仅看官方用法", Event()
+    )
 
     assert "required=True" in result.answer
     assert "未解决的部分" in result.answer
     assert "subparsers" in result.answer
+    assert "未核验文本" not in result.answer
     assert len(result.sources) == 2
     assert result.sources[0].url == "https://docs.python.org/3/library/argparse.html"
-    metrics = delegator.last_metrics
     assert metrics["sources_count"] == 2
     assert isinstance(metrics["latency_ms"], float)
 
@@ -148,14 +150,13 @@ def test_live_delegator_in_session_conditions_and_event_checker(tmp_path):
         session.close()
 
 
-def test_live_delegator_translates_malformed_payload_and_keeps_fifo_metrics():
+def test_live_delegator_translates_malformed_payload():
     from intentaware.delegation import DelegationError
 
     bad_llm = FakeLLMClient(
         [
             {
-                "answer": "   ",
-                "citations": [{"source_id": "S1", "quote": "required=True"}],
+                "citations": "required=True",
                 "unresolved": [],
             }
         ]
@@ -164,35 +165,35 @@ def test_live_delegator_translates_malformed_payload_and_keeps_fifo_metrics():
     with pytest.raises(DelegationError):
         delegator.run("Python argparse 怎么设置必填参数？", Event())
 
-    clients = [
-        FakeLLMClient(
-            [
-                {
-                    "answer": "第一次回答：使用 required=True。",
-                    "citations": [{"source_id": "S1", "quote": "传入 required=True"}],
-                    "unresolved": [],
-                }
-            ]
-        ),
-        FakeLLMClient(
-            [
-                {
-                    "answer": "第二次回答：使用位置参数和 required=True。",
-                    "citations": [
-                        {"source_id": "S1", "quote": "传入 required=True"},
-                        {"source_id": "S2", "quote": "位置参数（不带短横线前缀）默认就是必填参数"},
-                    ],
-                    "unresolved": [],
-                }
-            ]
-        ),
-    ]
-    fifo_delegator = LiveDelegator(lambda: clients.pop(0), MockRetriever(_sample_docs()))
-    fifo_delegator.run("重复问题", Event())
-    fifo_delegator.run("重复问题", Event())
 
-    first = fifo_delegator.pop_job_metrics("重复问题")
-    second = fifo_delegator.pop_job_metrics("重复问题")
-    assert first["sources_count"] == 1
-    assert second["sources_count"] == 2
-    assert fifo_delegator.pop_job_metrics("重复问题") == {}
+def test_same_question_keeps_metrics_by_job_when_results_finish_out_of_order(tmp_path):
+    first_started, release_first = Event(), Event()
+
+    class Client:
+        def __init__(self, tokens):
+            self.last_usage = {"total_tokens": tokens}
+
+        def complete_json(self, **kwargs):
+            if self.last_usage["total_tokens"] == 11:
+                first_started.set()
+                assert release_first.wait(4)
+            return {"citations": [{"source_id": "S1", "quote": "传入 required=True"}], "unresolved": []}
+
+    clients = iter([Client(11), Client(22)])
+    delegator = LiveDelegator(lambda: next(clients), MockRetriever(_sample_docs()))
+    session = DesktopSession(SQLiteStore(tmp_path / "concurrent.sqlite3"), delegator=delegator)
+    try:
+        session.set_goal("完成报告", "核对内容")
+        first = session.submit_delegation("重复问题")
+        assert first_started.wait(2)
+        second = session.submit_delegation("重复问题")
+        session._pending[second.id][0].result(timeout=2)
+        release_first.set()
+        session._pending[first.id][0].result(timeout=2)
+        session.poll()
+        usage = {e.job_id: e.details["usage"]["total_tokens"]
+                 for e in session.events if e.name == "delegation_completed"}
+        assert usage == {first.id: 11, second.id: 22}
+    finally:
+        release_first.set()
+        session.close()

@@ -106,5 +106,6 @@ class CitationClaim:
 class VerificationReport:
     verified_sources: tuple[Source, ...]
     verified_source_ids: tuple[str, ...]
+    verified_quotes: tuple[CitationClaim, ...]
     dropped_reasons: tuple[str, ...]
     passed: bool

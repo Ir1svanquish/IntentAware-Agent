@@ -17,7 +17,7 @@ from threading import Event
 from intentaware.nlp.config import LlmConfig
 from intentaware.nlp.errors import NlpConfigError
 
-from .agent import LiveDelegator
+from .agent import LiveDelegator, run_delegation
 from .config import DelegationConfig
 from .errors import DelegationConfigError, DelegationError
 from .retriever import PublicWebRetriever
@@ -57,7 +57,7 @@ def _extract_unresolved(answer: str) -> str:
     marker = "未解决的部分"
     if marker not in answer:
         return ""
-    section = answer.split(marker, 1)[1].strip().split("\n\n", 1)[0]
+    section = answer.split(marker, 1)[1].partition("\n")[2].split("\n\n", 1)[0]
     lines = [line.lstrip("- ").strip() for line in section.splitlines() if line.strip()]
     return "；".join(lines[:3])
 
@@ -69,12 +69,7 @@ def evaluate(delegator, samples: Sequence[Mapping[str, object]]) -> dict:
         question = str(sample["question"])
         topic = str(sample.get("topic", ""))
         try:
-            result = delegator.run(question, Event())
-            metrics = (
-                delegator.pop_job_metrics(question)
-                if hasattr(delegator, "pop_job_metrics")
-                else {}
-            )
+            result, metrics = run_delegation(delegator, question, Event())
             urls = [source.url for source in result.sources[:2]]
             rows.append(
                 {

@@ -16,6 +16,7 @@ from intentaware.contracts import (
     JobStatus, Progress, Source, new_id, utc_now,
 )
 from intentaware.contracts.interfaces import Classifier, Delegator
+from intentaware.delegation.agent import run_delegation
 from intentaware.delegation.demo import DemoDelegator
 from intentaware.memory.store import SQLiteStore
 from intentaware.memory.resume import recovery_key, recovery_text
@@ -317,7 +318,7 @@ class DesktopSession:
         job = DelegationJob(goal_id=goal.id, question=question.strip(), condition=self.condition)
         cancel = Event()
         self._event("delegation_submitted", job)
-        future = self._executor.submit(self.delegator.run, job.question, cancel)
+        future = self._executor.submit(run_delegation, self.delegator, job.question, cancel)
         self.jobs.append(job)
         self._pending[job.id] = (future, cancel)
         return job
@@ -353,7 +354,7 @@ class DesktopSession:
                 continue
             changed = True
             try:
-                result = future.result()
+                result, metrics = future.result()
                 if not isinstance(result, DelegationResult) or not result.answer.strip():
                     raise ValueError("委托模块没有返回有效的答案。")
                 if len(result.sources) > 2:
@@ -379,16 +380,11 @@ class DesktopSession:
             immediate = job.condition == Condition.I
             completed_details = {"sources_count": len(result.sources)}
             completed_details.update(self._delegator_details())
-            peek_metrics = getattr(self.delegator, "peek_job_metrics", None)
-            if callable(peek_metrics):
-                completed_details.update(peek_metrics(job.question) or {})
+            completed_details.update(metrics)
             with self.store.transaction():
                 self._event("delegation_completed", job, completed_details)
                 if immediate:
                     self._event("delegation_delivered", job, {"method": "immediate"})
-            pop_metrics = getattr(self.delegator, "pop_job_metrics", None)
-            if callable(pop_metrics):
-                pop_metrics(job.question)
             job.result = result
             job.status = JobStatus.DELIVERED if immediate else JobStatus.READY
             job.completed_at = completed_at

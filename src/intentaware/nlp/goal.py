@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from intentaware.localization import feedback_prompt, tr
 from intentaware.contracts import Goal
 
 from .errors import NlpResponseError
@@ -68,10 +69,10 @@ class LlmGoalClarifier:
     def clarify(self, text: str) -> GoalClarification:
         text = text.strip()
         if not text:
-            raise ValueError("请先写下一句目标描述。")
+            raise ValueError(tr("请先写下一句目标描述。"))
         system, user = self.prompt.render({"text": text})
         payload = self.client.complete_json(
-            system=system, user=user, schema=CLARIFY_SCHEMA
+            system=feedback_prompt(system), user=user, schema=CLARIFY_SCHEMA
         )
         return self._parse(payload)
 
@@ -79,7 +80,7 @@ class LlmGoalClarifier:
     def _parse(payload: Mapping[str, object]) -> GoalClarification:
         confidence = payload.get("confidence")
         if not isinstance(confidence, str) or confidence not in _CONFIDENCE:
-            raise NlpResponseError(f"模型返回了未知的置信度：{confidence!r}。")
+            raise NlpResponseError(tr("模型返回了未知的置信度：{0!r}。", confidence))
         return GoalClarification(
             title=text_field(payload.get("title"), "title", limit=60),
             next_step=text_field(payload.get("next_step"), "next_step", limit=120),

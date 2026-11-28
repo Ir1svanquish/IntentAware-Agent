@@ -1,4 +1,4 @@
-语言 / Language：**简体中文** | [English](README.en.md)
+语言：**简体中文** | [English](README.en.md)
 
 # PySide6 桌面应用源码
 

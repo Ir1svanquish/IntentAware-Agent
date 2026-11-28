@@ -59,7 +59,38 @@ def test_goal_detour_and_resume_from_window(open_window):
     assert activity in window.detour_list.item(0).text()
 
     window.resume_button.click()
-    assert "整理方法章节" in window.resume_label.text()
+    assert window.workbench_nav.isChecked()
+    assert "整理方法章节" in window.task_next_step.text()
+    assert any(event.name == "resume_requested" for event in session.events)
+
+
+def test_saved_detour_opens_delegation_with_note_and_protects_open_draft(open_window):
+    window, session = open_window()
+    session.set_goal("写演示讲稿", "完善方法章节")
+    note = session.add_detour("如何让 argparse 的可选参数变成必填？", purpose="本地备注")
+    other = session.add_detour("另一条支线")
+    window._refresh()
+    window.detours_nav.click()
+    assert hasattr(window, "delegate_detour_button")
+    assert not window.delegate_detour_button.isEnabled()
+    window.detour_list.setCurrentRow(0)
+    window.delegate_detour_button.click()
+
+    assert window.delegation_nav.isChecked()
+    assert window.question_input.text() == note.text
+    assert not session.jobs
+    window.formulate_button.click()
+    window.draft_scope_input.setText("保留这段未保存的草稿")
+    window.detours_nav.click()
+    window.detour_list.setCurrentRow(1)
+    window.delegate_detour_button.click()
+
+    assert window.delegation_nav.isChecked()
+    assert window.draft_editor.isVisible()
+    assert window.draft_question_input.text() == note.text
+    assert window.draft_scope_input.text() == "保留这段未保存的草稿"
+    assert session.detours == [note, other]
+    assert not session.jobs
 
 
 def test_empty_goal_and_example_do_not_create_data(open_window):
@@ -109,6 +140,7 @@ def test_detour_editor_crud_and_recovery_controls(open_window):
     assert "已暂停" in window.resume_label.text()
     window.resume_button.click()
     assert session.goal.next_step in window.resume_label.text()
+    window.detours_nav.click()
     window.pause_recovery_button.click()
     assert not session.recovery_paused
     window.remove_detour_button.click()

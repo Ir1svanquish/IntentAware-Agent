@@ -6,6 +6,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
+from intentaware.localization import tr
 from intentaware.activity.models import ActivitySnapshot, CaptureResult, TaskSuggestion, task_title_key
 from intentaware.activity.observer import create_observer, is_private_snapshot
 from intentaware.nlp.local import LocalTaskRecognizer
@@ -43,7 +44,7 @@ class TaskMonitor:
         self.excluded_apps = self._normalize_apps(session.store.get_setting("activity_monitor.excluded_apps", []))
         self.goal_origin = session.store.get_setting("goal_origin", "restored" if session.goal else "automatic")
         self.state = "starting" if self.enabled else "paused"
-        self.message = "切换到工作窗口，停留几秒后自动识别。" if self.enabled else "自动识别已暂停，可随时恢复。"
+        self.message = tr("切换到工作窗口，停留几秒后自动识别。") if self.enabled else tr("自动识别已暂停，可随时恢复。")
         self.snapshot: ActivitySnapshot | None = None
         self.suggestion: TaskSuggestion | None = None
         self.activity_text = ""
@@ -71,14 +72,14 @@ class TaskMonitor:
     def _capture(self, excluded_apps: tuple[str, ...]) -> tuple[CaptureResult, TaskSuggestion | None]:
         result = self.observer.capture()
         if not isinstance(result, CaptureResult):
-            raise ValueError("前台采集模块返回的数据无效。")
+            raise ValueError(tr("前台采集模块返回的数据无效。"))
         snapshot = result.snapshot
         if snapshot is not None and snapshot.process_id == os.getpid():
-            return CaptureResult(None, "idle", "正在使用 IntentAware，显示最近一次识别的活动。"), None
+            return CaptureResult(None, "idle", tr("正在使用 IntentAware，显示最近一次识别的活动。")), None
         if snapshot is not None and is_private_snapshot(snapshot):
-            return CaptureResult(None, "excluded", "当前窗口已跳过识别，不显示或保存相关活动。"), None
+            return CaptureResult(None, "excluded", tr("当前窗口已跳过识别，不显示或保存相关活动。")), None
         if snapshot is not None and _app_key(snapshot.app_name) in excluded_apps:
-            return CaptureResult(None, "excluded", "当前应用已加入排除列表。"), None
+            return CaptureResult(None, "excluded", tr("当前应用已加入排除列表。")), None
         suggestion = self.recognizer.infer(snapshot) if snapshot is not None and result.status == "ok" else None
         return result, suggestion
 
@@ -99,25 +100,25 @@ class TaskMonitor:
     def _consume(self, result: CaptureResult, suggestion: TaskSuggestion | None) -> bool:
         snapshot = result.snapshot
         if snapshot is not None and _app_key(snapshot.app_name) in self.excluded_apps:
-            result = CaptureResult(None, "excluded", "当前应用已加入排除列表。")
+            result = CaptureResult(None, "excluded", tr("当前应用已加入排除列表。"))
             snapshot, suggestion = None, None
         if snapshot is None or result.status != "ok":
             state = result.status if result.status in ("idle", "excluded", "unavailable") else "unavailable"
             if state == "idle":
                 # Keep the last external activity visible while the workbench has focus.
                 self._candidate_key = None
-                return self._state("idle", result.message or "等待可读取的工作窗口，显示最近一次活动。")
+                return self._state("idle", result.message or tr("等待可读取的工作窗口，显示最近一次活动。"))
             changed = self.snapshot is not None or self.state != state
             if changed:
                 self._clear_activity()
-            return self._state(state, result.message or "暂时无法识别，可点击修正手动设置任务。") or changed
+            return self._state(state, result.message or tr("暂时无法识别，可点击修正手动设置任务。")) or changed
 
         if self._accepted_key == snapshot.key:
             changed = self.snapshot is None or self.snapshot.key != snapshot.key or not self.activity_text
             self.snapshot, self.suggestion = snapshot, suggestion
             self.activity_text = suggestion.activity if suggestion is not None else ""
             self._candidate_key = snapshot.key
-            return self._state("watching", "正在自动识别，任务可随时修正。") or changed
+            return self._state("watching", tr("正在自动识别，任务可随时修正。")) or changed
         if self._candidate_key != snapshot.key:
             self._candidate_key = snapshot.key
             self._candidate_since = self._clock()
@@ -127,13 +128,13 @@ class TaskMonitor:
             self._analyzed_context = None
             self.session.classification = None
             self.session.classification_activity = None
-            self._state("sampling", "正在观察当前窗口，短暂切换不会改变任务。")
+            self._state("sampling", tr("正在观察当前窗口，短暂切换不会改变任务。"))
             if self._stable_seconds > 0:
                 return True
         if self._clock() - self._candidate_since < self._stable_seconds:
             return False
         if suggestion is None:
-            raise ValueError("任务识别模块没有返回建议。")
+            raise ValueError(tr("任务识别模块没有返回建议。"))
 
         # Logs contain only source digests and coarse labels, never raw window titles.
         if self._recorded_key != snapshot.key:
@@ -143,12 +144,14 @@ class TaskMonitor:
             })
             self._recorded_key = snapshot.key
         if self.session.goal is None and suggestion.title and suggestion.confidence in ("high", "medium"):
-            self.session.start_goal(suggestion.title, suggestion.next_step, origin="automatic")
+            self.session.start_goal(
+                suggestion.title, suggestion.next_step, inference_key=suggestion.task_key,
+            )
             self.goal_origin = "automatic"
         self.snapshot, self.suggestion = snapshot, suggestion
         self.activity_text = suggestion.activity
         self._accepted_key = snapshot.key
-        self._state("watching", "正在自动识别，任务可随时修正。" if suggestion.title else "窗口信息不足，可以点击修正补充任务。")
+        self._state("watching", tr("正在自动识别，任务可随时修正。") if suggestion.title else tr("窗口信息不足，可以点击修正补充任务。"))
         return True
 
     def _analysis_context(self) -> tuple | None:
@@ -184,7 +187,7 @@ class TaskMonitor:
                     result, suggestion = self._future.result()
                 except Exception:
                     self._clear_activity()
-                    changed = self._state("error", "暂时未能读取当前窗口，稍后会自动重试。")
+                    changed = self._state("error", tr("暂时未能读取当前窗口，稍后会自动重试。"))
                 else:
                     # Leave a successful future in place if a SQLite write fails; retry next tick.
                     changed = self._consume(result, suggestion)
@@ -206,7 +209,7 @@ class TaskMonitor:
         self.enabled = False
         self._generation += 1
         self._clear_activity()
-        self._state("paused", "自动识别已暂停，当前任务已保留。")
+        self._state("paused", tr("自动识别已暂停，当前任务已保留。"))
 
     def resume(self) -> None:
         if self._closed:
@@ -217,7 +220,7 @@ class TaskMonitor:
         self.enabled = True
         self._generation += 1
         self._last_started = float("-inf")
-        self._state("starting", "切换到工作窗口，停留几秒后自动识别。")
+        self._state("starting", tr("切换到工作窗口，停留几秒后自动识别。"))
 
     def correct_task(self, title: str, next_step: str, progress_note: str = ""):
         goal = self.session.set_goal(title, next_step, progress_note, origin="manual")
@@ -230,7 +233,7 @@ class TaskMonitor:
         goal, suggestion = self.session.goal, self.suggestion
         if goal is None or suggestion is None or not suggestion.title:
             return None
-        key = task_title_key(suggestion.title)
+        key = suggestion.task_key
         if key in (self.session.goal_inference_key, task_title_key(goal.title)):
             return None
         if (goal.id, key) in self._dismissed_suggestions:
@@ -241,13 +244,15 @@ class TaskMonitor:
         suggestion = self.switch_suggestion
         goal = self.session.goal
         if goal and suggestion:
-            self._dismissed_suggestions.add((goal.id, task_title_key(suggestion.title)))
+            self._dismissed_suggestions.add((goal.id, suggestion.task_key))
 
     def adopt_suggestion(self):
         suggestion = self.switch_suggestion
         if suggestion is None:
-            raise ValueError("当前没有可切换的任务建议。")
-        goal = self.session.start_goal(suggestion.title, suggestion.next_step, origin="manual")
+            raise ValueError(tr("当前没有可切换的任务建议。"))
+        goal = self.session.start_goal(
+            suggestion.title, suggestion.next_step, origin="manual", inference_key=suggestion.task_key,
+        )
         self.goal_origin = "manual"
         self._analyzed_context = None
         self._dismissed_suggestions.clear()
@@ -261,11 +266,11 @@ class TaskMonitor:
         self._last_started = float("-inf")
         if self.snapshot and _app_key(self.snapshot.app_name) in normalized:
             self._clear_activity()
-            self._state("excluded", "当前应用已加入排除列表。")
+            self._state("excluded", tr("当前应用已加入排除列表。"))
 
     def exclude_current_app(self) -> None:
         if self.snapshot is None:
-            raise ValueError("尚未识别到应用，请在排除列表中填写应用名称。")
+            raise ValueError(tr("尚未识别到应用，请在排除列表中填写应用名称。"))
         self.set_excluded_apps([*self.excluded_apps, self.snapshot.app_name])
 
     def close(self) -> None:

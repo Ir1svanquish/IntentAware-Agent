@@ -3,6 +3,7 @@
 import pytest
 
 from intentaware.contracts import ActivityContext, ActivityLabel, Goal
+from intentaware.localization import get_language, set_language
 from intentaware.nlp.classifier import LlmActivityClassifier
 from intentaware.nlp.demo import DemoClassifier
 from intentaware.nlp.errors import NlpResponseError, NlpTransportError
@@ -47,6 +48,24 @@ def test_prompt_carries_goal_progress_and_observation_source():
     assert "已读完两篇" in user
     assert "窗口观察" in user
     assert "Attention Is All You Need.pdf" in user
+
+
+def test_english_classification_prompts_for_feedback_in_english():
+    classifier = classifier_returning(
+        reason="The browser title matches the current topic.",
+        suggested_next_step="Read the related paper.",
+    )
+    previous = get_language()
+    set_language("en")
+    try:
+        result = classifier.classify(context(activity="Foreground window: Chrome｜Attention Is All You Need.pdf"))
+    finally:
+        set_language(previous)
+
+    call = classifier.client.calls[0]
+    assert "Write all user-facing feedback in English" in call["system"]
+    assert "Foreground window observation" in call["user"]
+    assert result.suggested_next_step == "Read the related paper."
 
 
 def test_manual_activity_is_marked_as_user_description():

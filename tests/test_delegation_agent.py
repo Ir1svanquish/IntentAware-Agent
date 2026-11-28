@@ -17,6 +17,7 @@ from intentaware.delegation import (
     MockRetriever,
     RetrievedDocument,
 )
+from intentaware.localization import get_language, set_language
 from intentaware.memory.store import SQLiteStore
 from intentaware.nlp.errors import NlpTimeoutError
 from intentaware.nlp.llm import FakeLLMClient
@@ -68,6 +69,29 @@ def test_live_delegator_produces_verified_answer_and_unresolved_points():
     assert result.sources[0].url == "https://docs.python.org/3/library/argparse.html"
     assert metrics["sources_count"] == 2
     assert isinstance(metrics["latency_ms"], float)
+
+
+def test_english_delivery_keeps_verified_quotations_in_the_source_language():
+    quote = "传入 required=True 即可强制要求用户提供该参数"
+    client = FakeLLMClient([{
+        "citations": [{"source_id": "S1", "quote": quote}],
+        "unresolved": ["Subcommands were outside the scope."],
+    }])
+    delegator = LiveDelegator(client, MockRetriever(_sample_docs()))
+    previous = get_language()
+    set_language("en")
+    try:
+        result = delegator.run(
+            "Question: How do I make an argparse flag required?\nScope: Check official documentation", Event(),
+        )
+    finally:
+        set_language(previous)
+
+    assert "Write all user-facing feedback in English" in client.calls[0]["system"]
+    assert "Verified excerpts" in result.answer
+    assert quote in result.answer
+    assert "Open questions" in result.answer
+    assert "Subcommands were outside the scope." in result.answer
 
 
 def test_live_delegator_blocks_empty_retrieval_and_unverified_citations():

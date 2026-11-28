@@ -18,6 +18,7 @@ from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
+from intentaware.localization import tr
 from .config import DelegationConfig
 from .errors import DelegationNetworkError, DelegationTimeoutError
 from .models import RetrievedDocument, SearchHit
@@ -43,7 +44,7 @@ class Retriever(Protocol):
 
 def _check_cancel(cancel: Event | None) -> None:
     if cancel is not None and cancel.is_set():
-        raise CancelledError("委托任务已取消。")
+        raise CancelledError(tr("委托任务已取消。"))
 
 
 def is_public_http_url(url: str) -> bool:
@@ -210,7 +211,7 @@ class _PublicRedirectHandler(urlrequest.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urlparse.urljoin(req.full_url, newurl)
         if not is_public_http_url(target):
-            raise urlerror.URLError("已拦截指向非公开地址的重定向。")
+            raise urlerror.URLError(tr("已拦截指向非公开地址的重定向。"))
         return super().redirect_request(req, fp, code, msg, headers, target)
 
 
@@ -219,13 +220,13 @@ def _connect_public(address, timeout: float, source_address=None):
     deadline = monotonic() + timeout
     endpoints = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
     if not endpoints or any(not _is_public_ip(ipaddress.ip_address(item[4][0])) for item in endpoints):
-        raise OSError("公开检索只允许连接公网地址。")
+        raise OSError(tr("公开检索只允许连接公网地址。"))
 
     last_error = None
     for family, kind, proto, _, sockaddr in endpoints:
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise TimeoutError("公开检索连接超时。")
+            raise TimeoutError(tr("公开检索连接超时。"))
         conn = socket.socket(family, kind, proto)
         try:
             conn.settimeout(remaining)
@@ -265,7 +266,7 @@ class _PublicHTTPSHandler(urlrequest.HTTPSHandler):
 
 def _default_http_get(url: str, headers: Mapping[str, str], timeout: float) -> tuple[bytes, str]:
     if not is_public_http_url(url):
-        raise urlerror.URLError("公开检索只允许请求公开 HTTP(S) 地址。")
+        raise urlerror.URLError(tr("公开检索只允许请求公开 HTTP(S) 地址。"))
     req = urlrequest.Request(url, headers=dict(headers), method="GET")
     opener = urlrequest.build_opener(
         urlrequest.ProxyHandler({}), _PublicHTTPHandler(), _PublicHTTPSHandler(), _PublicRedirectHandler()
@@ -294,10 +295,10 @@ def _is_timeout(exc: BaseException) -> bool:
 
 def _translate_http_error(exc: BaseException, timeout: float, action: str) -> DelegationNetworkError | DelegationTimeoutError:
     if _is_timeout(exc):
-        return DelegationTimeoutError(f"{action}超过 {timeout:g} 秒未响应。")
+        return DelegationTimeoutError(tr("{0}超过 {1:g} 秒未响应。", action, timeout))
     if isinstance(exc, urlerror.HTTPError):
-        return DelegationNetworkError(f"{action}返回 HTTP {exc.code}。")
-    return DelegationNetworkError(f"{action}失败，请检查网络连接。")
+        return DelegationNetworkError(tr("{0}返回 HTTP {1}。", action, exc.code))
+    return DelegationNetworkError(tr("{0}失败，请检查网络连接。", action))
 
 
 class DuckDuckGoSearchProvider:
@@ -313,7 +314,7 @@ class DuckDuckGoSearchProvider:
         try:
             raw, _ = self.http_get(url, headers, timeout)
         except (urlerror.HTTPError, urlerror.URLError, TimeoutError, socket.timeout, OSError) as exc:
-            raise _translate_http_error(exc, timeout, "公开搜索请求") from None
+            raise _translate_http_error(exc, timeout, tr("公开搜索请求")) from None
 
         parser = _DuckDuckGoParser()
         parser.feed(raw.decode("utf-8", errors="replace"))
@@ -344,12 +345,12 @@ class WikipediaSearchProvider:
         try:
             raw, _ = self.http_get(url, headers, timeout)
         except (urlerror.HTTPError, urlerror.URLError, TimeoutError, socket.timeout, OSError) as exc:
-            raise _translate_http_error(exc, timeout, "维基百科检索") from None
+            raise _translate_http_error(exc, timeout, tr("维基百科检索")) from None
 
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            raise DelegationNetworkError("维基百科检索返回了无法解析的数据。") from None
+            raise DelegationNetworkError(tr("维基百科检索返回了无法解析的数据。")) from None
 
         items = payload.get("query", {}).get("search", [])
         if not isinstance(items, list):
@@ -397,13 +398,13 @@ class TavilySearchProvider:
             raw = self.http_post_json(self.endpoint, payload, headers, timeout)
         except (urlerror.HTTPError, urlerror.URLError, TimeoutError, socket.timeout, OSError) as exc:
             if isinstance(exc, urlerror.HTTPError) and exc.code in (401, 403):
-                raise DelegationNetworkError(f"Tavily 鉴权失败（HTTP {exc.code}），请检查搜索密钥。") from None
-            raise _translate_http_error(exc, timeout, "Tavily 搜索请求") from None
+                raise DelegationNetworkError(tr("Tavily 鉴权失败（HTTP {0}），请检查搜索密钥。", exc.code)) from None
+            raise _translate_http_error(exc, timeout, tr("Tavily 搜索请求")) from None
 
         try:
             data = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            raise DelegationNetworkError("Tavily 返回了非 JSON 数据。") from None
+            raise DelegationNetworkError(tr("Tavily 返回了非 JSON 数据。")) from None
 
         results = data.get("results", [])
         if not isinstance(results, list):
@@ -458,7 +459,7 @@ class PublicWebRetriever:
     ) -> list[RetrievedDocument]:
         cleaned_query = query.strip()
         if not cleaned_query:
-            raise ValueError("检索问题不能为空。")
+            raise ValueError(tr("检索问题不能为空。"))
         _check_cancel(cancel)
 
         limit = max(1, min(max_sources, self.config.max_sources, 2))
@@ -578,7 +579,7 @@ class MockRetriever:
         self.calls.append({"query": query, "max_sources": max_sources})
         if self.delay_seconds > 0 and cancel is not None:
             if cancel.wait(self.delay_seconds):
-                raise CancelledError("委托任务已取消。")
+                raise CancelledError(tr("委托任务已取消。"))
         _check_cancel(cancel)
 
         limit = max(1, min(max_sources, 2))

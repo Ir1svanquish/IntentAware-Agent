@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import re
 
+from intentaware.localization import feedback_prompt, tr
 from intentaware.nlp.errors import NlpError, NlpTimeoutError, NlpTransportError
 from intentaware.nlp.fields import text_field
 
@@ -34,14 +35,17 @@ def _needs_local_clarification(question: str, note: str, clarification_answer: s
         return ""
     compact = re.sub(r"\s+", "", question)
     if len(compact) < 6:
-        return "请补充具体想查询的对象、工具名称或上下文，避免检索范围过宽。"
+        return tr("请补充具体想查询的对象、工具名称或上下文，避免检索范围过宽。")
     if any(token in question for token in _AMBIGUOUS_ZH) or _AMBIGUOUS_EN.search(question):
-        return "问题中包含“这个/它”等指代词，请补充具体的工具、文档或比较维度。"
+        return tr("问题中包含“这个/它”等指代词，请补充具体的工具、文档或比较维度。")
     return ""
 
 
 class LocalRequestFormulator:
     """离线请求整理器：不依赖网络，在无模型或回退时提供稳定整理与最多一次澄清。"""
+
+    def __init__(self, *, offline_demo: bool = False) -> None:
+        self.offline_demo = offline_demo
 
     def draft(
         self,
@@ -54,18 +58,26 @@ class LocalRequestFormulator:
     ) -> DelegationDraft:
         cleaned = raw_question.strip()
         if not cleaned:
-            raise ValueError("请输入需要委托的问题。")
+            raise ValueError(tr("请输入需要委托的问题。"))
+
+        if self.offline_demo:
+            return DelegationDraft(
+                raw_question=cleaned,
+                question=cleaned,
+                scope=tr("使用离线示例演示后台处理和交付时机"),
+                expected_output=tr("离线演示结果"),
+            )
 
         answer_text = clarification_answer.strip()
         note_text = note.strip()
-        question = f"{cleaned}（补充：{answer_text}）" if answer_text else cleaned
+        question = tr("{0}（补充：{1}）", cleaned, answer_text) if answer_text else cleaned
 
         if note_text:
-            scope = f"结合补充说明「{note_text[:80]}」，核查最多两份公开来源"
+            scope = tr("结合补充说明「{0}」，核查最多两份公开来源", note_text[:80])
         elif goal_title.strip():
-            scope = f"围绕与「{goal_title.strip()[:40]}」相关的当前疑问，核查最多两份公开来源"
+            scope = tr("围绕与「{0}」相关的当前疑问，核查最多两份公开来源", goal_title.strip()[:40])
         else:
-            scope = _DEFAULT_SCOPE
+            scope = tr(_DEFAULT_SCOPE)
 
         clarification = _needs_local_clarification(
             cleaned, note_text, answer_text, clarification_round
@@ -74,7 +86,7 @@ class LocalRequestFormulator:
             raw_question=cleaned,
             question=question,
             scope=scope,
-            expected_output=_DEFAULT_EXPECTED_OUTPUT,
+            expected_output=tr(_DEFAULT_EXPECTED_OUTPUT),
             clarification_question=clarification,
             clarification_round=clarification_round,
         )
@@ -105,21 +117,21 @@ class LlmRequestFormulator:
     ) -> DelegationDraft:
         cleaned = raw_question.strip()
         if not cleaned:
-            raise ValueError("请输入需要委托的问题。")
+            raise ValueError(tr("请输入需要委托的问题。"))
 
         allow_clarification = clarification_round < 1 and not clarification_answer.strip()
         system, user = self.prompt.render(
             {
-                "goal_title": goal_title.strip() or "（未设置）",
+                "goal_title": goal_title.strip() or tr("（未设置）"),
                 "raw_question": cleaned,
-                "note": note.strip() or "（无）",
-                "clarification_answer": clarification_answer.strip() or "（无）",
+                "note": note.strip() or tr("（无）"),
+                "clarification_answer": clarification_answer.strip() or tr("（无）"),
                 "allow_clarification": "yes" if allow_clarification else "no",
             }
         )
         try:
             payload = self.client.complete_json(
-                system=system, user=user, schema=FORMULATE_SCHEMA
+                system=feedback_prompt(system), user=user, schema=FORMULATE_SCHEMA
             )
             return self._parse(
                 payload,
@@ -168,12 +180,12 @@ class LlmRequestFormulator:
     ) -> DelegationDraft:
         question = text_field(payload.get("question"), "question", limit=240)
         raw_scope = payload.get("scope")
-        scope = raw_scope.strip()[:240] if isinstance(raw_scope, str) and raw_scope.strip() else _DEFAULT_SCOPE
+        scope = raw_scope.strip()[:240] if isinstance(raw_scope, str) and raw_scope.strip() else tr(_DEFAULT_SCOPE)
         raw_output = payload.get("expected_output")
         expected_output = (
             raw_output.strip()[:200]
             if isinstance(raw_output, str) and raw_output.strip()
-            else _DEFAULT_EXPECTED_OUTPUT
+            else tr(_DEFAULT_EXPECTED_OUTPUT)
         )
         raw_clarification = payload.get("clarification_question")
         clarification = (

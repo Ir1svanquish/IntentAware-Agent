@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 
+from intentaware.localization import tr
 from .errors import NlpConfigError
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
@@ -60,9 +61,9 @@ class LlmConfig:
         retries = _number(values, RETRIES_ENV, DEFAULT_RETRIES, int, minimum=0)
 
         if not base_url.startswith(("http://", "https://")):
-            raise NlpConfigError(f"{BASE_URL_ENV} 必须是 http(s) 地址，当前为 {base_url!r}。")
+            raise NlpConfigError(tr("{0} 必须是 http(s) 地址，当前为 {1!r}。", BASE_URL_ENV, base_url))
         if not model:
-            raise NlpConfigError(f"{MODEL_ENV} 不能为空。")
+            raise NlpConfigError(tr("{0} 不能为空。", MODEL_ENV))
 
         config = cls(
             base_url=base_url,
@@ -73,8 +74,7 @@ class LlmConfig:
         )
         if config.uses_default_provider and not api_key:
             raise NlpConfigError(
-                f"使用默认服务商时必须设置 {API_KEY_ENV}；"
-                f"如需本地模型，请同时设置 {BASE_URL_ENV}。"
+                tr("使用默认服务商时必须设置 {0}；如需本地模型，请同时设置 {1}。", API_KEY_ENV, BASE_URL_ENV)
             )
         return config
 
@@ -86,7 +86,7 @@ def _number(values: Mapping[str, str], name: str, default, cast, *, minimum: flo
     try:
         value = cast(raw)
     except ValueError:
-        raise NlpConfigError(f"{name} 必须是数字，当前为 {raw!r}。") from None
+        raise NlpConfigError(tr("{0} 必须是数字，当前为 {1!r}。", name, raw)) from None
     if value < minimum:
-        raise NlpConfigError(f"{name} 不能小于 {minimum:g}，当前为 {value}。")
+        raise NlpConfigError(tr("{0} 不能小于 {1:g}，当前为 {2}。", name, minimum, value))
     return value

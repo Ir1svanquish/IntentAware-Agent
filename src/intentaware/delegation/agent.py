@@ -8,6 +8,7 @@ from contextlib import nullcontext
 from threading import Event, Lock
 import time
 
+from intentaware.localization import feedback_prompt, tr
 from intentaware.contracts import DelegationResult
 from intentaware.nlp.config import LlmConfig
 from intentaware.nlp.errors import NlpError, NlpResponseError, NlpTimeoutError, NlpTransportError
@@ -51,7 +52,7 @@ ANSWER_SCHEMA = {
 
 def _check_cancel(cancel: Event) -> None:
     if cancel.is_set():
-        raise CancelledError("委托任务已取消。")
+        raise CancelledError(tr("委托任务已取消。"))
 
 
 def run_delegation(delegator, question: str, cancel: Event) -> tuple[DelegationResult, dict]:
@@ -65,9 +66,7 @@ def _format_sources_block(documents: list[RetrievedDocument]) -> str:
     blocks = []
     for doc in documents[:2]:
         blocks.append(
-            f"[{doc.source_id}] 标题：{doc.title}\n"
-            f"链接：{doc.url}\n"
-            f"正文摘录：{doc.excerpt}"
+            tr("[{0}] 标题：{1}\n链接：{2}\n正文摘录：{3}", doc.source_id, doc.title, doc.url, doc.excerpt)
         )
     return "\n\n".join(blocks)
 
@@ -133,13 +132,13 @@ class LiveDelegator:
         _check_cancel(cancel)
         docs = docs[:min(self.config.max_sources, 2)]
         if not docs:
-            raise DelegationRetrievalError("未检索到相关的公开来源，暂不生成无依据回答。")
+            raise DelegationRetrievalError(tr("未检索到相关的公开来源，暂不生成无依据回答。"))
 
         system, user = self.prompt.render(
             {
                 "question": draft.question,
-                "scope": draft.scope or "围绕问题本身，基于有限公开来源作答",
-                "expected_output": draft.expected_output or "简短结论、依据及未解决点",
+                "scope": draft.scope or tr("围绕问题本身，基于有限公开来源作答"),
+                "expected_output": draft.expected_output or tr("简短结论、依据及未解决点"),
                 "sources_block": _format_sources_block(docs),
             }
         )
@@ -148,7 +147,7 @@ class LiveDelegator:
         try:
             with self._client_lock:
                 _check_cancel(cancel)
-                payload = client.complete_json(system=system, user=user, schema=ANSWER_SCHEMA)
+                payload = client.complete_json(system=feedback_prompt(system), user=user, schema=ANSWER_SCHEMA)
                 last_usage = getattr(client, "last_usage", None)
                 usage = dict(last_usage) if isinstance(last_usage, dict) else {}
             _check_cancel(cancel)
@@ -161,21 +160,21 @@ class LiveDelegator:
             raise DelegationError(str(exc)) from None
         report = self.verifier.verify(citations, docs)
         if not report.passed:
-            raise DelegationVerificationError("回答引用未通过公开来源核验，已拦截无依据输出。")
+            raise DelegationVerificationError(tr("回答引用未通过公开来源核验，已拦截无依据输出。"))
 
         source_numbers = {source.url: index for index, source in enumerate(report.verified_sources, start=1)}
         document_urls = {doc.source_id: doc.url for doc in docs}
         excerpts = "\n".join(
-            f"- [来源 {source_numbers[document_urls[quote.source_id]]}] {quote.quote}"
+            tr("- [来源 {0}] {1}", source_numbers[document_urls[quote.source_id]], quote.quote)
             for quote in report.verified_quotes
         )
-        sections = [f"已核对的原文摘录\n{excerpts}"]
+        sections = [tr("已核对的原文摘录\n{0}", excerpts)]
         if unresolved:
             unresolved_lines = "\n".join(f"- {item}" for item in unresolved)
-            sections.append(f"未解决的部分（模型整理）\n{unresolved_lines}")
+            sections.append(tr("未解决的部分（模型整理）\n{0}", unresolved_lines))
 
         if report.dropped_reasons:
-            sections.append(f"引用核验说明\n- 已过滤 {len(report.dropped_reasons)} 条未能核实的引用。")
+            sections.append(tr("引用核验说明\n- 已过滤 {0} 条未能核实的引用。", len(report.dropped_reasons)))
 
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
         metrics: dict[str, object] = {
@@ -200,7 +199,7 @@ class LiveDelegator:
     ) -> tuple[list[CitationClaim], list[str]]:
         raw_citations = payload.get("citations")
         if not isinstance(raw_citations, list):
-            raise NlpResponseError("模型返回的 citations 必须是数组。")
+            raise NlpResponseError(tr("模型返回的 citations 必须是数组。"))
         citations: list[CitationClaim] = []
         for item in raw_citations[:4]:
             if not isinstance(item, dict):
@@ -212,7 +211,7 @@ class LiveDelegator:
 
         raw_unresolved = payload.get("unresolved")
         if not isinstance(raw_unresolved, list):
-            raise NlpResponseError("模型返回的 unresolved 必须是数组。")
+            raise NlpResponseError(tr("模型返回的 unresolved 必须是数组。"))
         unresolved = [
             item.strip()[:200]
             for item in raw_unresolved

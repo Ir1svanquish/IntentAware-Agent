@@ -1,4 +1,4 @@
-Language / 语言：[简体中文](README.md) | **English**
+Language: [Chinese](README.md) | **English**
 
 # Tests
 

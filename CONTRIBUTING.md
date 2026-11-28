@@ -1,4 +1,4 @@
-语言 / Language：**简体中文** | [English](CONTRIBUTING.en.md)
+语言：**简体中文** | [English](CONTRIBUTING.en.md)
 
 # 组员协作指南（四周桌面版）
 

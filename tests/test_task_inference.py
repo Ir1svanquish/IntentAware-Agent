@@ -120,3 +120,21 @@ def test_local_classifier_preserves_manual_keyword_semantics(activity, label):
 def test_manual_next_step_still_takes_precedence_over_preparation_keyword():
     result = LocalActivityClassifier().classify(ActivityContext(Goal("完成报告", "阅读第三章"), "阅读第三章"))
     assert result.label is ActivityLabel.DIRECT_PROGRESS
+
+
+@pytest.mark.parametrize(("activity", "label"), [
+    ("I am writing a birthday card for a friend.", ActivityLabel.UNCLEAR),
+    ("I am reading restaurant menus to choose where to eat.", ActivityLabel.UNCLEAR),
+    ("I'm not writing the report. I'm waiting for feedback.", ActivityLabel.UNCLEAR),
+    ("I was not able to draft the methods section.", ActivityLabel.UNCLEAR),
+    ("I am writing a birthday card. The methods section is on hold.", ActivityLabel.UNCLEAR),
+    ("I am revising the methods section based on reviewer comments.", ActivityLabel.DIRECT_PROGRESS),
+    ("I am not writing the introduction, but I am editing the methods section.", ActivityLabel.DIRECT_PROGRESS),
+    ("I am reading the codebook for the methods section.", ActivityLabel.NECESSARY_PREPARATION),
+    ("Draft the methods section.", ActivityLabel.DIRECT_PROGRESS),
+    ("As a side question, look up travel prices.", ActivityLabel.OPTIONAL_EXPLORATION),
+])
+def test_manual_english_classification_uses_affirmative_goal_evidence(activity, label):
+    goal = Goal("Complete the research report", "Draft the methods section")
+    result = LocalActivityClassifier().classify(ActivityContext(goal, activity))
+    assert result.label is label

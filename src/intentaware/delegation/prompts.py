@@ -9,6 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 from string import Template
 
+from intentaware.localization import tr
 _PROMPT_DIR = Path(__file__).with_name("prompts")
 _SECTIONS = ("system", "user")
 
@@ -27,7 +28,7 @@ class Prompt:
                 {key: str(value) for key, value in values.items()}
             )
         except KeyError as exc:
-            raise ValueError(f"Prompt {self.name} 缺少占位符：{exc.args[0]}") from None
+            raise ValueError(tr("Prompt {0} 缺少占位符：{1}", self.name, exc.args[0])) from None
         return self.system, user
 
 
@@ -37,12 +38,12 @@ def load_prompt(name: str) -> Prompt:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        raise FileNotFoundError(f"找不到 Prompt 模板：{path}") from None
+        raise FileNotFoundError(tr("找不到 Prompt 模板：{0}", path)) from None
 
     sections = _split_sections(text)
     missing = [section for section in _SECTIONS if not sections.get(section)]
     if missing:
-        raise ValueError(f"Prompt {name} 缺少段落：{', '.join(missing)}")
+        raise ValueError(tr("Prompt {0} 缺少段落：{1}", name, ', '.join(missing)))
 
     digest = sha256(text.encode("utf-8")).hexdigest()[:8]
     return Prompt(

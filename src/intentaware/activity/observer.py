@@ -14,6 +14,7 @@ import subprocess
 import sys
 import unicodedata
 
+from intentaware.localization import tr
 from .models import ActivitySnapshot, CaptureResult
 
 
@@ -22,7 +23,7 @@ MAX_APP_CHARS = 128
 _NATIVE_TITLE_LIMIT = 2048
 _XPROP_BYTES = 8192
 _COMMAND_TIMEOUT = 0.75
-_SELF_MESSAGE = "正在使用 IntentAware，显示最近一次识别的活动。"
+_SELF_MESSAGE = tr("正在使用 IntentAware，显示最近一次识别的活动。")
 _PRIVATE_MESSAGE = "已跳过隐私窗口或密码管理器。"
 _PASSWORD_APPS = (
     "1password", "bitwarden", "keepass", "dashlane", "enpass", "lastpass",
@@ -113,35 +114,35 @@ class WindowsForegroundObserver:
         try:
             window = self._user32.GetForegroundWindow()
             if not window:
-                return CaptureResult(None, "idle", "当前没有前台窗口。")
+                return CaptureResult(None, "idle", tr("当前没有前台窗口。"))
             process_id = ctypes.c_uint32()
             if not self._user32.GetWindowThreadProcessId(window, ctypes.byref(process_id)) or not process_id.value:
-                return CaptureResult(None, "unavailable", "暂时无法识别前台应用。")
+                return CaptureResult(None, "unavailable", tr("暂时无法识别前台应用。"))
             if process_id.value == os.getpid():
                 return CaptureResult(None, "idle", _SELF_MESSAGE)
             app = self._app_name(process_id.value)
             if not app:
-                return CaptureResult(None, "unavailable", "无法读取前台应用名称，已跳过本次采集。")
+                return CaptureResult(None, "unavailable", tr("无法读取前台应用名称，已跳过本次采集。"))
             if is_private_snapshot(ActivitySnapshot(app, "", process_id.value)):
-                return CaptureResult(None, "excluded", _PRIVATE_MESSAGE)
+                return CaptureResult(None, "excluded", tr(_PRIVATE_MESSAGE))
             # GetWindowTextW retrieves the caption of other-process windows
             # without sending WM_GETTEXT to them. Own-process windows were
             # rejected first because their WM_GETTEXT handler could block.
             buffer = ctypes.create_unicode_buffer(_NATIVE_TITLE_LIMIT + 1)
             count = self._user32.GetWindowTextW(window, buffer, len(buffer))
             if count >= _NATIVE_TITLE_LIMIT:
-                return CaptureResult(None, "unavailable", "窗口标题过长，已跳过本次采集。")
+                return CaptureResult(None, "unavailable", tr("窗口标题过长，已跳过本次采集。"))
             title = _clean_text(buffer.value)
             if not count or not title:
-                return CaptureResult(None, "idle", "当前窗口没有可用于识别的标题。")
+                return CaptureResult(None, "idle", tr("当前窗口没有可用于识别的标题。"))
             snapshot = ActivitySnapshot(app, title, process_id.value)
             if is_private_snapshot(snapshot):
-                return CaptureResult(None, "excluded", _PRIVATE_MESSAGE)
+                return CaptureResult(None, "excluded", tr(_PRIVATE_MESSAGE))
             if self._user32.GetForegroundWindow() != window:
-                return CaptureResult(None, "idle", "前台窗口正在切换。")
+                return CaptureResult(None, "idle", tr("前台窗口正在切换。"))
             return CaptureResult(ActivitySnapshot(app, title[:MAX_TITLE_CHARS], process_id.value))
         except (OSError, ValueError, AttributeError):
-            return CaptureResult(None, "unavailable", "暂时无法读取 Windows 前台窗口，请稍后重试。")
+            return CaptureResult(None, "unavailable", tr("暂时无法读取 Windows 前台窗口，请稍后重试。"))
 
 
 def _quoted_values(line: str) -> list[str]:
@@ -187,9 +188,9 @@ class X11ForegroundObserver:
         try:
             window = self._active_window()
             if window is None:
-                return CaptureResult(None, "unavailable", "X11 窗口管理器未提供前台窗口信息。")
+                return CaptureResult(None, "unavailable", tr("X11 窗口管理器未提供前台窗口信息。"))
             if int(window, 16) == 0:
-                return CaptureResult(None, "idle", "当前没有前台窗口。")
+                return CaptureResult(None, "idle", tr("当前没有前台窗口。"))
             output = self._query("-id", window, "_NET_WM_PID", "WM_CLASS", "_NET_WM_NAME", "WM_NAME")
             properties = {}
             for line in output.splitlines():
@@ -198,31 +199,31 @@ class X11ForegroundObserver:
                     properties[name.group(1)] = line.split("=", 1)[1].strip()
             pid_match = re.fullmatch(r"[0-9]+", properties.get("_NET_WM_PID", ""))
             if not pid_match or int(pid_match.group()) <= 0:
-                return CaptureResult(None, "unavailable", "窗口未提供进程标识，已跳过本次采集。")
+                return CaptureResult(None, "unavailable", tr("窗口未提供进程标识，已跳过本次采集。"))
             process_id = int(pid_match.group())
             if process_id == os.getpid():
                 return CaptureResult(None, "idle", _SELF_MESSAGE)
             classes = _quoted_values(properties.get("WM_CLASS", ""))
             app = _clean_text(classes[-1], MAX_APP_CHARS) if classes else ""
             if not app:
-                return CaptureResult(None, "unavailable", "窗口未提供应用名称，已跳过本次采集。")
+                return CaptureResult(None, "unavailable", tr("窗口未提供应用名称，已跳过本次采集。"))
             if is_private_snapshot(ActivitySnapshot(app, "", process_id)):
-                return CaptureResult(None, "excluded", _PRIVATE_MESSAGE)
+                return CaptureResult(None, "excluded", tr(_PRIVATE_MESSAGE))
             names = _quoted_values(properties.get("_NET_WM_NAME", ""))
             if not names or not names[0]:
                 names = _quoted_values(properties.get("WM_NAME", ""))
             title = _clean_text(names[0]) if names else ""
             if len(title) >= _NATIVE_TITLE_LIMIT:
-                return CaptureResult(None, "unavailable", "窗口标题过长，已跳过本次采集。")
+                return CaptureResult(None, "unavailable", tr("窗口标题过长，已跳过本次采集。"))
             if not title:
-                return CaptureResult(None, "idle", "当前窗口没有可用于识别的标题。")
+                return CaptureResult(None, "idle", tr("当前窗口没有可用于识别的标题。"))
             if is_private_snapshot(ActivitySnapshot(app, title, process_id)):
-                return CaptureResult(None, "excluded", _PRIVATE_MESSAGE)
+                return CaptureResult(None, "excluded", tr(_PRIVATE_MESSAGE))
             if self._active_window() != window:
-                return CaptureResult(None, "idle", "前台窗口正在切换。")
+                return CaptureResult(None, "idle", tr("前台窗口正在切换。"))
             return CaptureResult(ActivitySnapshot(app, title[:MAX_TITLE_CHARS], process_id))
         except (OSError, subprocess.TimeoutExpired, ValueError):
-            return CaptureResult(None, "unavailable", "暂时无法读取 X11 前台窗口，请检查显示会话和 xprop。")
+            return CaptureResult(None, "unavailable", tr("暂时无法读取 X11 前台窗口，请检查显示会话和 xprop。"))
 
 
 def create_observer():
@@ -231,16 +232,16 @@ def create_observer():
         try:
             return WindowsForegroundObserver()
         except (OSError, AttributeError):
-            return UnavailableObserver("Windows 前台窗口接口不可用，可继续手动填写任务。")
+            return UnavailableObserver(tr("Windows 前台窗口接口不可用，可继续手动填写任务。"))
     if sys.platform.startswith("linux"):
         if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE", "").casefold() == "wayland":
-            return UnavailableObserver("Wayland 暂不支持前台窗口识别，可继续手动填写任务。")
+            return UnavailableObserver(tr("Wayland 暂不支持前台窗口识别，可继续手动填写任务。"))
         if not os.environ.get("DISPLAY"):
-            return UnavailableObserver("未检测到 X11 显示会话，可继续手动填写任务。")
+            return UnavailableObserver(tr("未检测到 X11 显示会话，可继续手动填写任务。"))
         executable = shutil.which("xprop")
         if not executable:
-            return UnavailableObserver("X11 识别需要 xprop；安装后重启应用，或继续手动填写任务。")
+            return UnavailableObserver(tr("X11 识别需要 xprop；安装后重启应用，或继续手动填写任务。"))
         return X11ForegroundObserver(executable)
     if sys.platform == "darwin":
-        return UnavailableObserver("macOS 暂未接入前台窗口识别，可继续手动填写任务。")
-    return UnavailableObserver("当前平台暂不支持前台窗口识别，可继续手动填写任务。")
+        return UnavailableObserver(tr("macOS 暂未接入前台窗口识别，可继续手动填写任务。"))
+    return UnavailableObserver(tr("当前平台暂不支持前台窗口识别，可继续手动填写任务。"))

@@ -44,6 +44,9 @@ def _needs_local_clarification(question: str, note: str, clarification_answer: s
 class LocalRequestFormulator:
     """离线请求整理器：不依赖网络，在无模型或回退时提供稳定整理与最多一次澄清。"""
 
+    def __init__(self, *, offline_demo: bool = False) -> None:
+        self.offline_demo = offline_demo
+
     def draft(
         self,
         raw_question: str,
@@ -56,6 +59,14 @@ class LocalRequestFormulator:
         cleaned = raw_question.strip()
         if not cleaned:
             raise ValueError(tr("请输入需要委托的问题。"))
+
+        if self.offline_demo:
+            return DelegationDraft(
+                raw_question=cleaned,
+                question=cleaned,
+                scope=tr("使用离线示例演示后台处理和交付时机"),
+                expected_output=tr("离线演示结果"),
+            )
 
         answer_text = clarification_answer.strip()
         note_text = note.strip()

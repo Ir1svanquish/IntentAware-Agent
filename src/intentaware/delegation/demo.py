@@ -33,11 +33,12 @@ class DemoDelegator:
         """Run an explicitly offline demonstration."""
         if not question.strip():
             raise ValueError(tr("请输入需要委托的问题。"))
+        draft = DelegationDraft.parse_question(question)
         if cancel.wait(self.delay_seconds):
             raise CancelledError(tr("任务已取消。"))
         if (
             self.reference_sample
-            and DelegationDraft.parse_question(question).question in (DEMO_QUESTION, english(DEMO_QUESTION))
+            and draft.question in (DEMO_QUESTION, english(DEMO_QUESTION))
         ):
             client = FakeLLMClient([{
                 "citations": [{"source_id": _REFERENCE.source_id, "quote": _REFERENCE.excerpt}],
@@ -48,13 +49,9 @@ class DemoDelegator:
                 answer=tr("离线演示 · 预置公开文档摘录\n\n{0}", result.answer),
                 sources=result.sources,
             )
-        return DelegationResult(
-            answer=(
-                tr(
-                    "离线委托演示\n\n已接收问题：{0}\n\n"
-                    "后台任务已经完成，主窗口在等待期间仍可继续操作。\n"
-                    "本次展示后台处理和交付时机。联网委托可通过 --delegator live 启用。",
-                    question.strip(),
-                )
-            ),
-        )
+        request = draft.format_question() if draft.scope or draft.expected_output else tr("问题：{0}", draft.question)
+        return DelegationResult(answer=tr(
+            "离线委托演示\n\n{0}\n\n后台处理已完成。本次请求用于演示交付时机。"
+            "联网检索可通过 --delegator live 启用。",
+            request,
+        ))

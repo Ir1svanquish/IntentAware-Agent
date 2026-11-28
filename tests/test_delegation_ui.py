@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from intentaware.contracts import Condition, JobStatus
 from intentaware.delegation import LiveDelegator, LlmRequestFormulator, MockRetriever, RetrievedDocument
+from intentaware.delegation.demo import DemoDelegator
 from intentaware.memory.store import SQLiteStore
 from intentaware.nlp.llm import FakeLLMClient
 from intentaware.session import DesktopSession
@@ -95,6 +96,37 @@ def test_delegation_formulate_clarify_confirm_and_checkpoint_delivery(app, tmp_p
         window.close()
 
 
+def test_offline_draft_and_delivery_keep_the_question_separate_from_the_main_task(app, tmp_path):
+    session = DesktopSession(
+        SQLiteStore(tmp_path / "offline.sqlite3"),
+        delegator=DemoDelegator(delay_seconds=0), condition=Condition.D,
+    )
+    session.set_goal("准备演示讲稿", "完善研究方法章节")
+    question = "如何让 argparse 的可选参数变成必填？"
+    window = MainWindow(session)
+    window.show()
+    try:
+        window.delegation_nav.click()
+        window.question_input.setText(question)
+        window.formulate_button.click()
+        scope = window.draft_scope_input.text()
+        assert "准备演示讲稿" not in scope
+        assert "公开来源" not in scope
+        assert "离线" in scope
+
+        window.confirm_draft_button.click()
+        _wait_until(lambda: session.jobs[0].status == JobStatus.READY)
+        assert question not in window.job_result.toPlainText()
+        window.checkpoint_button.click()
+        assert session.jobs[0].status == JobStatus.DELIVERED
+        result = window.job_result.toPlainText()
+        assert result.count(question) == 1
+        assert "已接收问题：问题：" not in result and "问题：问题：" not in result
+        assert window.job_list.item(0).text() == f"已交付   {question}"
+    finally:
+        window.close()
+
+
 @pytest.mark.parametrize("condition, completion_status", [
     (Condition.I, JobStatus.DELIVERED),
     (Condition.D, JobStatus.READY),
@@ -126,12 +158,17 @@ def test_live_draft_stays_responsive_and_defers_search_until_confirmation(
         SQLiteStore(tmp_path / "live.sqlite3"), delegator=delegator, condition=condition
     )
     session.set_goal("private test goal", "plan the meeting")
+    session.add_detour("What time is the meeting?", purpose="private saved note purpose")
     window = MainWindow(session, formulator=LlmRequestFormulator(draft_client))
     window.show()
     try:
-        window.delegation_nav.click()
+        window.detours_nav.click()
+        window.detour_list.setCurrentRow(0)
+        window.delegate_detour_button.click()
+        assert window.delegation_nav.isChecked()
         assert not window.submit_button.isVisible()
-        window.question_input.setText("What time is the meeting?")
+        assert window.question_input.text() == "What time is the meeting?"
+        assert not started.is_set() and not retriever.calls
         QTimer.singleShot(20, lambda: ticks.append(True))
         QTest.keyClick(window.question_input, Qt.Key.Key_Return)
         _wait_until(lambda: started.is_set() and ticks)
@@ -143,6 +180,7 @@ def test_live_draft_stays_responsive_and_defers_search_until_confirmation(
         assert not session.jobs and not retriever.calls
         assert "What time is the meeting?" in draft_client.calls[0]["user"]
         assert "private test goal" not in draft_client.calls[0]["user"]
+        assert "private saved note purpose" not in draft_client.calls[0]["user"]
 
         window.delegation_nav.click()
         window.confirm_draft_button.click()

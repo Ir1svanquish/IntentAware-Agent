@@ -78,7 +78,7 @@ The original proposal describes a browser extension. The current implementation 
 1. **Start working:** Launch the app and continue in an editor or browser. A stable, informative window title can establish the first task.
 2. **Review and correct:** Check the displayed source. Use **Edit task** to edit the task and next step. Human corrections are preserved.
 3. **Follow your activity:** The workbench updates the activity, classification, and reason automatically. A window change never confirms progress.
-4. **Handle new tasks and detours:** Adopt a suggestion when you want to change the main task. Save a detour, or use offline delegation to try the background and delivery workflow.
+4. **Handle new tasks and detours:** Adopt a suggestion when you want to change the main task. Save a detour next to the activity assessment. From **Detours & Recovery**, select a note and choose **Use in delegation** to reuse it as a question.
 5. **Resume work:** Continue from your confirmed progress and next step. The sidebar also provides recognition controls, exclusions, and experiment records.
 
 ## Module goals

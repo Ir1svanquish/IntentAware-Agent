@@ -309,10 +309,10 @@ class DesktopSession:
         if self.goal is None:
             return tr("请先在工作台设置主任务，再查看恢复提示。")
         if self.recovery_paused:
-            return tr("恢复提示已暂停，仍可点击“恢复主任务”手动查看。")
+            return tr("恢复提示已暂停。工作台仍会显示已确认的进度和下一步。")
         ignored = self.store.get_setting(f"recovery_ignored:{self.goal.id}")
         if ignored == recovery_key(self.goal, self.progress):
-            return tr("本条恢复提示已忽略；更新任务或进度后将提供新的提示，也可手动查看。")
+            return tr("当前恢复提示已忽略。更新任务或进度后会提供新的提示。")
         return recovery_text(self.goal, self.progress, self.detours)
 
     def resume(self) -> str:

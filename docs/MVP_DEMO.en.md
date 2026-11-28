@@ -14,8 +14,8 @@ python -m intentaware --lang en --demo --condition D --data-dir ./demo-mvp
 On Windows, `.\start.bat --lang en --demo --condition D --data-dir demo-mvp` sets up the virtual environment and launches the same demo.
 
 1. Wait for the workbench to infer an IntentAware-Agent task from the simulated editor window.
-2. Open **Experiments & Logs → Load demo example**. Select **Save changes** to save the task, next step, and confirmed progress. Select **Analyze activity**, then **Save as detour** when the workbench marks the activity as a possible detour.
-3. Open **Delegation → Prepare request**, then select **Confirm and submit** for the prefilled question about `argparse`. Wait for **Ready to deliver**. Open **Detours & Recovery → Resume main task** to see the saved progress and next step while the answer is still hidden.
+2. Open **Experiments & Logs → Load demo example**. Select **Save changes** to save the task, next step, and confirmed progress. Select **Analyze activity**, then **Save as detour** next to the assessment when it marks the activity as a possible detour.
+3. Open **Delegation → Prepare request**, then select **Confirm and submit** for the prefilled question about `argparse`. Wait for **Ready to deliver**. Open **Detours & Recovery** to see the saved progress and next step, then select **Back to workbench**. The answer stays hidden.
 4. Return to **Delegation** and choose **Reach checkpoint**. The answer reveals a checked excerpt and its source. Run with `--condition I` and a separate data directory to demonstrate immediate delivery with the same question and evidence.
 5. In research use, once an observer sees a meaningful edit to the original task, choose **Experiments & Logs → Record main-task edit**. The workbench records the displayed detour prompt separately. Choose **Export JSONL** and save as `events-demo.jsonl`. The export is tagged as a demo run.
 

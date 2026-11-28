@@ -52,7 +52,7 @@ CLASSIFICATIONS = {
     ActivityLabel.UNCLEAR: "还需要一些线索",
 }
 ANALYSIS_HINT = "识别到活动后，会自动判断它与主任务的关系。"
-RESUME_HINT = "点击“恢复主任务”，查看你上次确认的进度和下一步。"
+RESUME_HINT = "这里会显示已确认的进度和下一步。"
 JOB_STATES = {
     JobStatus.RUNNING: "处理中", JobStatus.READY: "待交付", JobStatus.DELIVERED: "已交付",
     JobStatus.FAILED: "失败", JobStatus.CANCELLED: "已取消",
@@ -105,7 +105,7 @@ def _field(layout: QVBoxLayout, caption: str, widget: QWidget) -> None:
     layout.addWidget(widget)
 
 
-def _button(text: str, on_click: Callable[[], None], *, primary: bool = False,
+def _button(text: str, on_click: Callable[[], None] | None = None, *, primary: bool = False,
             quiet: bool = False, glyph: str | None = None) -> QPushButton:
     button = QPushButton(text)
     button.setProperty("primary", primary)
@@ -114,7 +114,8 @@ def _button(text: str, on_click: Callable[[], None], *, primary: bool = False,
     if glyph:
         button.setIcon(icon(glyph, "#FFFFFF" if primary else "#606B80", 16))
         button.setIconSize(QSize(16, 16))
-    button.clicked.connect(on_click)
+    if on_click is not None:
+        button.clicked.connect(on_click)
     return button
 
 
@@ -177,9 +178,12 @@ class MainWindow(QMainWindow):
         self.session = session
         self.monitor = monitor
         self.demo = demo
-        self.formulator = formulator if formulator is not None else LocalRequestFormulator()
         self._uses_llm = isinstance(session.classifier, LlmActivityClassifier)
         self._uses_live_delegator = isinstance(session.delegator, LiveDelegator)
+        self.formulator = (
+            formulator if formulator is not None
+            else LocalRequestFormulator(offline_demo=not self._uses_live_delegator)
+        )
         self._draft_executor = (
             ThreadPoolExecutor(max_workers=1, thread_name_prefix="delegation-draft")
             if isinstance(self.formulator, LlmRequestFormulator) else None
@@ -436,14 +440,15 @@ class MainWindow(QMainWindow):
         relation.addWidget(self.classification_title)
         relation.addWidget(self.classification_label)
         relation.addStretch()
-        self.detour_button = _button(tr("暂存此活动"), self._add_detour, glyph="detours")
+        self.detour_button = _button(tr("暂存为支线"), self._add_detour, glyph="detours")
         relation.addWidget(self.detour_button, alignment=Qt.AlignmentFlag.AlignLeft)
         observations.addWidget(relation_card, 5)
         layout.addLayout(observations)
 
-        self.manual_toggle = _button(tr("手动补充活动"), self._toggle_manual, quiet=True, glyph="chevron")
+        self.manual_toggle = _button(tr("手动补充活动"), quiet=True, glyph="chevron")
         self.manual_toggle.setObjectName("manualToggle")
         self.manual_toggle.setCheckable(True)
+        self.manual_toggle.toggled.connect(self._toggle_manual)
         layout.addWidget(self.manual_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
         self.manual_panel, manual = _card()
         self.activity_input = QPlainTextEdit(placeholderText=tr("标题线索不足时，补充你正在做的事情。"))
@@ -452,7 +457,7 @@ class MainWindow(QMainWindow):
         _field(manual, tr("活动描述"), self.activity_input)
         actions = QHBoxLayout()
         self.analyze_button = _button(tr("分析这段活动"), self._analyze, primary=True)
-        self.manual_detour_button = _button(tr("暂存为支线"), lambda: self._add_detour(manual=True))
+        self.manual_detour_button = _button(tr("暂存手动输入"), lambda: self._add_detour(manual=True))
         actions.addWidget(self.analyze_button)
         actions.addWidget(self.manual_detour_button)
         actions.addStretch()
@@ -503,15 +508,19 @@ class MainWindow(QMainWindow):
         self.detour_list.setMinimumHeight(180)
         self.detour_list.currentRowChanged.connect(self._refresh_detour_actions)
         items.addWidget(self.detour_list)
-        self.detour_empty = _label(tr("目前没有支线\n\n在工作台点击“暂存此活动”，把临时想法留到稍后。"), "muted", wrap=True)
+        self.detour_empty = _label(tr("目前没有支线\n\n在工作台点击“暂存为支线”，把临时想法留到稍后。"), "muted", wrap=True)
         self.detour_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detour_empty.setMinimumHeight(150)
         items.addWidget(self.detour_empty)
         actions = QHBoxLayout()
         self.new_detour_button = _button(tr("新增支线"), lambda: self._edit_detour(new=True))
-        self.edit_detour_button = _button(tr("编辑选中支线"), self._edit_detour)
-        self.remove_detour_button = _button(tr("删除选中支线"), self._remove_detour)
-        for button in (self.new_detour_button, self.edit_detour_button, self.remove_detour_button):
+        self.edit_detour_button = _button(tr("编辑"), self._edit_detour)
+        self.edit_detour_button.setAccessibleName(tr("编辑选中支线"))
+        self.remove_detour_button = _button(tr("删除"), self._remove_detour)
+        self.remove_detour_button.setAccessibleName(tr("删除选中支线"))
+        self.delegate_detour_button = _button(tr("带入委托"), self._use_detour_in_delegation, primary=True)
+        for button in (self.delegate_detour_button, self.new_detour_button,
+                       self.edit_detour_button, self.remove_detour_button):
             actions.addWidget(button)
         actions.addStretch()
         items.addLayout(actions)
@@ -540,7 +549,7 @@ class MainWindow(QMainWindow):
         self.resume_label.setAccessibleName(tr("任务恢复提示"))
         self.resume_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         resume.addWidget(self.resume_label)
-        self.resume_button = _button(tr("恢复主任务"), self._resume, primary=True, glyph="arrow")
+        self.resume_button = _button(tr("返回工作台"), self._resume, primary=True, glyph="arrow")
         actions = QHBoxLayout()
         self.ignore_recovery_button = _button(tr("忽略本条提示"), self._ignore_recovery)
         self.pause_recovery_button = _button(tr("暂停恢复提示"), self._toggle_recovery)
@@ -571,7 +580,7 @@ class MainWindow(QMainWindow):
         self.delegation_mode_hint = _label(
             tr("先整理可编辑请求，确认后再检索最多两份公开来源。")
             if self._uses_live_delegator
-            else tr("当前使用离线示例回答，用于验证委托与交付流程。"),
+            else tr("离线模式只演示后台处理和交付时机。"),
             "muted",
             wrap=True,
         )
@@ -603,9 +612,9 @@ class MainWindow(QMainWindow):
         draft_layout.addWidget(_label(tr("可编辑委托请求（确认后提交给后台）"), "heading"))
         self.draft_question_input = QLineEdit(placeholderText=tr("整理后的明确问题"))
         _field(draft_layout, tr("明确问题"), self.draft_question_input)
-        self.draft_scope_input = QLineEdit(placeholderText=tr("例如：只核对文件兼容性与免费版限制"))
+        self.draft_scope_input = QLineEdit(placeholderText=tr("这次委托要处理哪些内容？"))
         _field(draft_layout, tr("处理范围"), self.draft_scope_input)
-        self.draft_output_input = QLineEdit(placeholderText=tr("例如：简短结论、来源链接及未解决点"))
+        self.draft_output_input = QLineEdit(placeholderText=tr("希望得到什么结果？"))
         _field(draft_layout, tr("期望输出"), self.draft_output_input)
 
         self.clarification_box = QFrame()
@@ -834,7 +843,6 @@ class MainWindow(QMainWindow):
             self.activity_input.setPlainText(tr("顺便浏览了一些演示文稿模板，想保存下来以后参考。"))
             self.question_input.setText(tr("被打断后，怎样更快地恢复当前任务？"))
         self.manual_toggle.setChecked(True)
-        self._toggle_manual()
         self._status(tr("已填入示例。保存修正后，可以分析示例活动或提交离线委托。"))
 
     def _save_goal(self) -> None:
@@ -857,20 +865,17 @@ class MainWindow(QMainWindow):
         self.manual_panel.setVisible(opened)
         self.manual_toggle.setIcon(icon("chevron_up" if opened else "chevron", size=16))
         self.manual_toggle.setAccessibleDescription(tr("已展开") if opened else tr("已折叠"))
-        if opened:
+        if opened and not self._editing_goal:
             self.activity_input.setFocus()
+            QTimer.singleShot(0, self, lambda: self.pages.widget(WORKBENCH).ensureWidgetVisible(self.analyze_button))
+        self._refresh_classification()
 
     def _manual_activity_changed(self) -> None:
         if not hasattr(self, "manual_classification_label"):
             return
         self._refresh_classification()
-        pending = self.session.analysis_pending
-        self.manual_detour_button.setEnabled(self.session.memory_enabled and not pending
-                                            and bool(self.activity_input.toPlainText().strip())
-                                            and self.session.goal is not None)
         if not self.monitor:
             self._refresh_activity()
-            self.detour_button.setEnabled(self.manual_detour_button.isEnabled())
 
     def _toggle_monitor(self) -> None:
         if self.monitor:
@@ -953,15 +958,27 @@ class MainWindow(QMainWindow):
                 self.session.start_analysis(activity)
             self._analyzed_activity = activity
             self._manual_observation_key = self._observation_key()
-            return tr("已提交补充活动，判断结果会显示在下方。")
-        self._perform(analyze)
+            return tr("已提交分析。结果会显示在与主任务的关系卡片中。")
+        if self._perform(analyze):
+            QTimer.singleShot(
+                0, self, lambda: self.pages.widget(WORKBENCH).ensureWidgetVisible(self.classification_title),
+            )
+
+    def _matches_manual_analysis(self, text: str) -> bool:
+        return bool(text and self._analyzed_activity == text
+                    and self._manual_observation_key == self._observation_key())
+
+    def _detour_activity(self, *, manual: bool = False) -> str:
+        entered = self.activity_input.toPlainText().strip()
+        if manual or not self.monitor or self._matches_manual_analysis(entered):
+            return entered
+        return self.monitor.activity_text or (entered if self.manual_toggle.isChecked() else "")
 
     def _add_detour(self, manual: bool = False) -> None:
         def add() -> str:
-            activity = (self.monitor.activity_text if self.monitor and not manual
-                        else self.activity_input.toPlainText())
-            self.session.add_detour(activity)
+            item = self.session.add_detour(self._detour_activity(manual=manual))
             self._show_page(DETOURS)
+            _sync_rows(self.detour_list, self._detour_rows(), select=item.id)
             return tr("已暂存这条活动，可以继续主任务。")
         self._perform(add)
 
@@ -971,6 +988,25 @@ class MainWindow(QMainWindow):
         self.new_detour_button.setEnabled(enabled)
         self.edit_detour_button.setEnabled(selected)
         self.remove_detour_button.setEnabled(selected)
+        self.delegate_detour_button.setVisible(self.session.delegation_enabled)
+        self.delegate_detour_button.setEnabled(selected and self.session.delegation_enabled)
+
+    def _use_detour_in_delegation(self) -> None:
+        def handoff() -> str:
+            current = _selected_id(self.detour_list)
+            item = next((detour for detour in self.session.detours if detour.id == current), None)
+            if item is None or not self.session.delegation_enabled:
+                return ""
+            question = " ".join(item.text.splitlines())
+            existing = self.question_input.text().strip()
+            self._show_page(DELEGATION)
+            if self._draft is not None or self._draft_future is not None or (existing and existing != question):
+                return tr("委托页已有未提交的问题。请先完成或清空，再从支线带入。")
+            self.question_input.setText(question)
+            self.pages.widget(DELEGATION).verticalScrollBar().setValue(0)
+            self.question_input.setFocus()
+            return tr("已带入支线，可先编辑问题再提交。")
+        self._perform(handoff)
 
     def _edit_detour(self, new: bool = False) -> None:
         if not self.session.memory_enabled or self.session.goal is None:
@@ -1026,9 +1062,12 @@ class MainWindow(QMainWindow):
         )))) for item in self.session.detours] if self.session.memory_enabled else []
 
     def _resume(self) -> None:
-        def resume() -> None:
+        def resume() -> str:
             self.session.resume()
             self._resume_requested_key = recovery_key(self.session.goal, self.session.progress)
+            self._show_page(WORKBENCH)
+            self.pages.widget(WORKBENCH).verticalScrollBar().setValue(0)
+            return tr("已返回工作台，可从下一步继续。")
         self._perform(resume)
 
     def _ignore_recovery(self) -> None:
@@ -1088,7 +1127,6 @@ class MainWindow(QMainWindow):
             raise ValueError(tr("正在整理委托请求。"))
         self._show_page(DELEGATION)
         kwargs = {
-            "goal_title": goal.title if not self._uses_live_delegator and self._draft_executor is None else "",
             "clarification_answer": clarification,
             "clarification_round": int(bool(clarification)),
         }
@@ -1213,9 +1251,6 @@ class MainWindow(QMainWindow):
         active_jobs = any(job.status in (JobStatus.RUNNING, JobStatus.READY) for job in self.session.jobs)
         self.adopt_suggestion_button.setEnabled(not pending and not active_jobs)
         self.adopt_suggestion_button.setToolTip(tr("先完成或取消待交付的委托，再切换主任务。") if active_jobs else "")
-        activity = self.monitor.activity_text if self.monitor else self.activity_input.toPlainText()
-        self.detour_button.setEnabled(memory and has_goal and not pending and bool(activity.strip()))
-        self.manual_detour_button.setEnabled(memory and has_goal and not pending and bool(self.activity_input.toPlainText().strip()))
         self.resume_button.setEnabled(memory and has_goal)
         self.ignore_recovery_button.setEnabled(memory and has_goal)
         self.pause_recovery_button.setEnabled(memory and has_goal)
@@ -1269,9 +1304,13 @@ class MainWindow(QMainWindow):
     def _refresh_task(self) -> None:
         goal = self.session.goal
         _preview(self.task_title, goal.title if goal else tr("先回到你正在做的事"), 240)
-        _preview(self.task_next_step, (goal.next_step or tr("点击“修正”，补充一个可以着手的下一步。")) if goal
-                 else (tr("切回正在处理的应用，停留片刻；任务会在这里自动出现。") if self.monitor
-                       else tr("点击“修正”设置主任务，再补充一次当前活动。")), 240)
+        if goal:
+            next_step = goal.next_step or tr("点击“修正”，补充一个可以着手的下一步。")
+        elif self.monitor and self.monitor.state not in ("paused", "unavailable", "error", "excluded"):
+            next_step = tr("切回正在处理的应用，停留片刻；任务会在这里自动出现。")
+        else:
+            next_step = tr("点击“修正”设置主任务，再补充一次当前活动。")
+        _preview(self.task_next_step, next_step, 240)
         progress = self.session.progress.note if self.session.progress else ""
         _preview(self.progress_label, tr("已确认进度 · {0}", progress) if progress else tr("窗口变化不会自动改写已确认进度。"), 400)
         origin = self.monitor.goal_origin if self.monitor else "manual"
@@ -1365,8 +1404,13 @@ class MainWindow(QMainWindow):
 
     def _refresh_classification(self) -> None:
         manual = self.activity_input.toPlainText().strip()
-        manual_context = bool(manual and self._analyzed_activity == manual
-                              and self._manual_observation_key == self._observation_key())
+        manual_context = self._matches_manual_analysis(manual)
+        detour = self._detour_activity()
+        can_save = self.session.memory_enabled and self.session.goal is not None and not self.session.analysis_pending
+        separate_manual = bool(manual and detour != manual)
+        self.detour_button.setEnabled(can_save and bool(detour))
+        self.manual_detour_button.setVisible(separate_manual)
+        self.manual_detour_button.setEnabled(can_save and separate_manual)
         activity = manual if manual_context or not self.monitor else self.monitor.activity_text
         result = self.session.classification
         classified_activity = getattr(self.session, "classification_activity", None) or self._analyzed_activity
@@ -1382,7 +1426,7 @@ class MainWindow(QMainWindow):
             title = tr(CLASSIFICATIONS[result.label])
             source = tr("手动补充 · ") if manual_context and self.monitor else ""
             text = tr("{0}{1}\n\n建议：{2}", source, result.reason, result.suggested_next_step)
-        elif self.monitor and not activity:
+        elif self.monitor and not activity and self.session.goal is not None:
             title, text = tr("主任务继续保留"), tr("有新的活动线索时，再判断它与主任务的关系。")
         elif self.session.analysis_error:
             title, text = tr("暂时无法判断"), tr("{0}\n可以补充活动后重试。", self.session.analysis_error)
@@ -1419,7 +1463,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_jobs(self, select: str | None = None) -> None:
         jobs = self.session.jobs if self.session.delegation_enabled else []
-        _sync_rows(self.job_list, [(job.id, f"{tr(JOB_STATES[job.status])}   {job.question}") for job in reversed(jobs)], select)
+        rows = [
+            (job.id, f"{tr(JOB_STATES[job.status])}   {DelegationDraft.parse_question(job.question).question}")
+            for job in reversed(jobs)
+        ]
+        _sync_rows(self.job_list, rows, select)
         self.job_list.setVisible(bool(jobs))
         self.job_empty.setVisible(not jobs)
         self._refresh_job_result()

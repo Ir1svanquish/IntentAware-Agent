@@ -12,6 +12,7 @@ from experiments.check_events import check_events
 from intentaware.activity.demo import DemoObserver
 from intentaware.activity.models import ActivitySnapshot, CaptureResult
 from intentaware.activity.monitor import TaskMonitor
+from intentaware.activity.observer import UnavailableObserver
 from intentaware.contracts import ActivityLabel, JobStatus
 from intentaware.delegation.demo import DEMO_QUESTION, DemoDelegator
 from intentaware.localization import get_language, set_language
@@ -59,6 +60,21 @@ def automatic_window(app, tmp_path):
     wait_until(lambda: session.goal is not None and session.classification is not None and not session.analysis_pending)
     yield window, session, monitor
     window.close()
+
+
+def test_unavailable_foreground_capture_guides_first_time_users_to_manual_setup(app, tmp_path):
+    session = DesktopSession(SQLiteStore(tmp_path / "unavailable.sqlite3"))
+    monitor = TaskMonitor(session, UnavailableObserver("当前环境无法提供窗口标题"))
+    window = MainWindow(session, monitor=monitor)
+    window.show()
+    try:
+        wait_until(lambda: monitor.state == "unavailable")
+        assert session.goal is None
+        assert "修正" in window.task_next_step.text()
+        assert "自动出现" not in window.task_next_step.text()
+        assert window.correction_button.isEnabled()
+    finally:
+        window.close()
 
 
 def test_observations_update_without_editing_or_analyze_click(automatic_window):
@@ -127,8 +143,11 @@ def test_mvp_demo_from_task_inference_to_checkpoint_and_export(app, tmp_path, mo
             assert window.classification_title.text() == "Possible detour"
             assert session.classification.reason.startswith("Local rules: Detected")
             assert "Save the detour" in window.manual_classification_label.text()
-        window.manual_detour_button.click()
-        assert len(session.detours) == 1
+        manual_activity = window.activity_input.toPlainText()
+        assert window.detour_button.isEnabled()
+        window.detour_button.click()
+        assert [detour.text for detour in session.detours] == [manual_activity]
+        assert window.detour_list.currentItem() is not None
 
         window.delegation_nav.click()
         assert window.question_input.text() == question

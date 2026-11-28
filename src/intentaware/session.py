@@ -16,6 +16,7 @@ from intentaware.contracts import (
     JobStatus, Progress, Source, new_id, utc_now,
 )
 from intentaware.contracts.interfaces import Classifier, Delegator
+from intentaware.delegation.agent import run_delegation
 from intentaware.delegation.demo import DemoDelegator
 from intentaware.memory.store import SQLiteStore
 from intentaware.memory.resume import recovery_key, recovery_text
@@ -58,8 +59,14 @@ class DesktopSession:
         self._event("session_started", details=self._provider_details())
 
     def _provider_details(self) -> dict:
-        details = {"delegator": type(self.delegator).__name__}
+        details = self._delegator_details()
         details.update(self._classifier_details())
+        return details
+
+    def _delegator_details(self) -> dict:
+        """委托器可暴露 metadata（模型、Prompt 版本、检索器），写进事件供实验复现。"""
+        details = {"delegator": type(self.delegator).__name__}
+        details.update(getattr(self.delegator, "metadata", None) or {})
         return details
 
     def _classifier_details(self) -> dict:
@@ -311,7 +318,7 @@ class DesktopSession:
         job = DelegationJob(goal_id=goal.id, question=question.strip(), condition=self.condition)
         cancel = Event()
         self._event("delegation_submitted", job)
-        future = self._executor.submit(self.delegator.run, job.question, cancel)
+        future = self._executor.submit(run_delegation, self.delegator, job.question, cancel)
         self.jobs.append(job)
         self._pending[job.id] = (future, cancel)
         return job
@@ -347,7 +354,7 @@ class DesktopSession:
                 continue
             changed = True
             try:
-                result = future.result()
+                result, metrics = future.result()
                 if not isinstance(result, DelegationResult) or not result.answer.strip():
                     raise ValueError("委托模块没有返回有效的答案。")
                 if len(result.sources) > 2:
@@ -371,8 +378,11 @@ class DesktopSession:
                 continue
             completed_at = utc_now()
             immediate = job.condition == Condition.I
+            completed_details = {"sources_count": len(result.sources)}
+            completed_details.update(self._delegator_details())
+            completed_details.update(metrics)
             with self.store.transaction():
-                self._event("delegation_completed", job)
+                self._event("delegation_completed", job, completed_details)
                 if immediate:
                     self._event("delegation_delivered", job, {"method": "immediate"})
             job.result = result
@@ -393,15 +403,18 @@ class DesktopSession:
         job.status = JobStatus.DELIVERED
         job.delivered_at = utc_now()
 
-    def checkpoint(self) -> int:
+    def checkpoint(self, label: str = "") -> int:
         goal = self._require_goal()
         if not self.delegation_enabled:
             raise ValueError("当前实验条件未启用委托检查点。")
         self.poll()
         checkpoint = Checkpoint(goal_id=goal.id)
         ready = [job for job in self.jobs if job.status == JobStatus.READY]
+        details: dict = {"checkpoint_id": checkpoint.id}
+        if label.strip():
+            details["has_label"] = True
         with self.store.transaction():
-            self._event("checkpoint_reached", details={"checkpoint_id": checkpoint.id})
+            self._event("checkpoint_reached", details=details)
             for job in ready:
                 self._event("delegation_delivered", job, {"method": "checkpoint"})
         for job in ready:

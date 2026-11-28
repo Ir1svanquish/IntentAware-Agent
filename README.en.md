@@ -55,7 +55,7 @@ Use the virtual-environment Python path shown above, or activate the environment
 - Pause, resume, and application exclusions, with settings stored locally. Low-information titles remain uncertain and require correction.
 - SQLite storage for the current goal, confirmed progress, and detours. Those records are available after restarting the app.
 - G/P/I/D feature gates, background delegation with immediate or deferred delivery, early viewing, cancellation, and JSONL export for the current run. Delegation jobs live for the current app session.
-- The default title and keyword rules run locally without network access or an API key. Use `--classifier llm` to enable [model-based classification](docs/GETTING_STARTED.md#llm-分类可选). Delegation returns offline demonstration results.
+- Classification uses local rules and delegation uses an offline demo by default. Use `--classifier llm` for [model-based classification](docs/GETTING_STARTED.md#llm-分类可选) and `--delegator live` for [public-source delegation](src/intentaware/delegation/README.md).
 
 ### Desktop preview
 
@@ -63,7 +63,7 @@ Use the virtual-environment Python path shown above, or activate the environment
 
 ## Overview
 
-**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. By default it uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. `--classifier llm` optionally connects an OpenAI-compatible model for goal clarification and four-way classification (API key required, off by default; tests and the default flow stay offline). Public-source retrieval and asynchronous delegation of non-urgent questions remain in development; the current delegator supports offline checks of background execution and delivery.
+**IntentAware-Agent** is a desktop task companion for studying, writing, and coding. It uses foreground application and title metadata to classify activities in relation to the main goal, while preserving detours and user-confirmed progress. An OpenAI-compatible model can classify activities, and `--delegator live` can research side questions in the background and deliver verified page excerpts at a checkpoint.
 
 ### Project proposal
 
@@ -137,7 +137,7 @@ src/intentaware/
 ├── activity/       # Foreground observation, stability sampling, and task monitor
 ├── nlp/            # Local task inference and activity classification
 ├── memory/         # Progress, detours, and resumption
-├── delegation/     # Offline delegation provider
+├── delegation/     # Offline demo and public-source delegation
 ├── contracts/      # Shared schemas and interfaces
 ├── session.py      # Feature gates, background work, and delivery
 └── __main__.py     # Command-line entry point

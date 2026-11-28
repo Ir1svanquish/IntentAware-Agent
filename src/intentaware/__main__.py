@@ -20,6 +20,10 @@ def main(argv: list[str] | None = None) -> int:
         "--classifier", choices=("local", "llm"), default="local",
         help="活动分类器：local 使用本地规则（默认），llm 调用 INTENTAWARE_LLM_* 配置的兼容服务",
     )
+    parser.add_argument(
+        "--delegator", choices=("demo", "live"), default="demo",
+        help="后台委托：demo 使用离线示例（默认），live 检索最多两份公开来源并调用 LLM 生成答案",
+    )
     args = parser.parse_args(argv)
 
     from PySide6.QtWidgets import QApplication, QMessageBox
@@ -36,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("COMP7607-Group14")
 
     classifier = None
+    llm_config = None
     if args.classifier == "llm":
         from intentaware.nlp import LlmActivityClassifier, LlmConfig, NlpError, OpenAICompatibleClient
 
@@ -52,11 +57,48 @@ def main(argv: list[str] | None = None) -> int:
             f"{llm_config.base_url}\n\n当前活动可能包含前台应用名和窗口标题。\n模型：{llm_config.model}",
         )
 
+    delegator = None
+    formulator = None
+    if args.delegator == "live":
+        from intentaware.delegation import (
+            DelegationConfig, DelegationError, LiveDelegator,
+            LlmRequestFormulator, LocalRequestFormulator, PublicWebRetriever,
+        )
+        from intentaware.nlp import LlmConfig, NlpError, OpenAICompatibleClient
+
+        try:
+            llm_config = llm_config or LlmConfig.from_env()
+            delegation_config = DelegationConfig.from_env()
+            delegator = LiveDelegator(
+                llm_config,
+                PublicWebRetriever(delegation_config),
+                config=delegation_config,
+            )
+            formulator = LlmRequestFormulator(
+                OpenAICompatibleClient(llm_config),
+                fallback=LocalRequestFormulator(),
+            )
+        except (NlpError, DelegationError) as exc:
+            QMessageBox.critical(None, "无法启用实时公开检索委托", f"{exc}\n\n未发送任何数据。")
+            return 1
+        QMessageBox.information(
+            None,
+            "实时异步委托已启用",
+            f"模型端点：{llm_config.base_url}（模型：{llm_config.model}）\n"
+            "用模型整理时会发送输入的问题及补充的澄清。\n"
+            f"确认委托后，问题才会发给检索提供方 {delegation_config.search_provider}，"
+            f"最多抓取 {delegation_config.max_sources} 份候选来源。\n"
+            "经确认的委托内容和网页摘录会发给模型。"
+            "委托流程不会自动读取主任务标题、窗口观察或数据库历史。",
+        )
+
     data_dir = args.data_dir or (default_data_dir() / "demo" if args.demo else default_data_dir())
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         store = SQLiteStore(data_dir / "intentaware.sqlite3")
-        session = DesktopSession(store, classifier=classifier, condition=Condition(args.condition))
+        session = DesktopSession(
+            store, classifier=classifier, delegator=delegator, condition=Condition(args.condition)
+        )
         monitor = TaskMonitor(
             session, DemoObserver() if args.demo else None,
             enabled=True if args.demo else (False if args.manual else None),
@@ -65,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         QMessageBox.critical(None, "无法启动", f"无法打开本地数据目录：\n{data_dir}\n\n{exc}")
         return 1
-    window = MainWindow(session, monitor=monitor, demo=args.demo)
+    window = MainWindow(session, monitor=monitor, demo=args.demo, formulator=formulator)
     app.aboutToQuit.connect(monitor.close)
     app.aboutToQuit.connect(session.close)
     window.show()

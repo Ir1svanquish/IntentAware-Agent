@@ -59,7 +59,7 @@ python -m intentaware --demo --data-dir ./demo-data
 | [A 桌面交互](https://github.com/Ir1svanquish/IntentAware-Agent/issues/1) | [`ui/window.py`](../src/intentaware/ui/window.py) 的 `MainWindow`，以及 [`ui/theme.py`](../src/intentaware/ui/theme.py)。工作台、修正、状态反馈与侧栏页面。 | [`test_ui.py`](../tests/test_ui.py)、[`test_automatic_ui.py`](../tests/test_automatic_ui.py) 和上述操作。 |
 | [B 目标与活动分类](https://github.com/Ir1svanquish/IntentAware-Agent/issues/2) | [`nlp/local.py`](../src/intentaware/nlp/local.py) 的 `LocalTaskRecognizer` 与 `LocalActivityClassifier`。[`nlp/demo.py`](../src/intentaware/nlp/demo.py) 保留原有离线分类器。 | [`test_task_inference.py`](../tests/test_task_inference.py)、[`test_classifier.py`](../tests/test_classifier.py)，覆盖标题推断、低置信度和四分类。 |
 | [C 任务记忆与恢复](https://github.com/Ir1svanquish/IntentAware-Agent/issues/3) | [`memory/store.py`](../src/intentaware/memory/store.py) 的 `SQLiteStore`；[`DesktopSession.resume()`](../src/intentaware/session.py) 组织恢复提示。 | [`test_storage.py`](../tests/test_storage.py) 和同一数据目录重启检查。 |
-| [D 异步委托](https://github.com/Ir1svanquish/IntentAware-Agent/issues/4) | [`delegation/demo.py`](../src/intentaware/delegation/demo.py) 的 `DemoDelegator`；[`session.py`](../src/intentaware/session.py) 管理后台执行与交付。 | [`test_session.py`](../tests/test_session.py)，检查完成、交付、失败与取消。 |
+| [D 异步委托](https://github.com/Ir1svanquish/IntentAware-Agent/issues/4) | [`delegation/demo.py`](../src/intentaware/delegation/demo.py) 的 `DemoDelegator` 与 [`delegation/agent.py`](../src/intentaware/delegation/agent.py) 的 `LiveDelegator`；[`session.py`](../src/intentaware/session.py) 管理后台执行与交付。 | [`test_session.py`](../tests/test_session.py) 与 `test_delegation_*.py`，检查整理确认、检索、核验、交付、失败与取消。 |
 | [E 研究评估](https://github.com/Ir1svanquish/IntentAware-Agent/issues/5) | [实验评估工具](../experiments/README.md)和[候选样本](../experiments/data/README.md)。 | 分别导出 G/P/I/D JSONL，用 `experiments.evaluate` 核对事件。正式恢复计时还需接入同一任务的提示与有效编辑事件。 |
 | [F 前台观察与集成](https://github.com/Ir1svanquish/IntentAware-Agent/issues/6) | [`activity/observer.py`](../src/intentaware/activity/observer.py) 适配系统；[`activity/monitor.py`](../src/intentaware/activity/monitor.py) 稳定采样与协调任务；[`__main__.py`](../src/intentaware/__main__.py) 装配模式。 | [`test_observer.py`](../tests/test_observer.py)、[`test_monitor.py`](../tests/test_monitor.py) 和完整测试。 |
 
@@ -86,7 +86,14 @@ session = DesktopSession(
 
 自动观察由 `TaskMonitor` 调用观察器的 `capture() -> CaptureResult`，稳定后使用 `LocalTaskRecognizer.infer(snapshot)` 生成候选任务，再协调后台活动分类。替换观察器时保留空闲、排除与不可用状态，给外部命令设置超时；暂停、排除或关闭后不得应用之前发出的延迟结果。
 
-当前委托执行器是离线示例；活动分类默认使用本地规则，也可以显式切换到 LLM。接入真实检索前，同步更新界面模式提示与事件模式标记，并为评估记录模型、Prompt 版本和观察模式。不要把标题分类结果写成用户已完成的进度。
+当前默认委托执行器是离线示例；可用 `--delegator live` 启用公开来源检索与 LLM 解答（详情见 [`delegation/README.md`](../src/intentaware/delegation/README.md)）。活动分类默认使用本地规则，也可以显式切换到 LLM。接入真实检索后，界面会切换模式提示并在事件中记录模型、Prompt 版本、来源数与耗时。不要把标题分类结果写成用户已完成的进度。
+
+```bash
+# 启用实时异步委托
+INTENTAWARE_LLM_API_KEY=... python -m intentaware --delegator live
+```
+
+「用模型整理」会把输入的问题发给配置的模型，也可以补充一次澄清。后台整理时可继续操作工作台。编辑草稿并确认后才开始检索。应用会尝试获取最多两份公开来源，并展示能在原文核对的摘录。委托不会自动发送主任务标题、窗口观察或数据库历史。
 
 ### LLM 分类（可选）
 
